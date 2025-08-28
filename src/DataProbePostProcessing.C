@@ -1,0 +1,1006 @@
+/*------------------------------------------------------------------------*/
+/*  Copyright 2025 COMERI.                                                */
+/*  This software is released under the license detailed                  */
+/*  in the file, LICENSE, which is located in the top-level Mare-Nalu     */
+/*  directory structure                                                   */
+/*------------------------------------------------------------------------*/
+
+
+#include "DataProbePostProcessing.h"
+#include "FieldTypeDef.h"
+#include "NaluParsing.h"
+#include "NaluEnv.h"
+#include "Realm.h"
+#include "Simulation.h"
+
+// xfer
+#include <xfer/Transfer.h>
+#include <xfer/Transfers.h>
+
+// stk_util
+#include <stk_util/parallel/ParallelReduce.hpp>
+
+// stk_mesh/base/fem
+#include <stk_mesh/base/BulkData.hpp>
+#include <stk_mesh/base/Entity.hpp>
+#include <stk_mesh/base/Field.hpp>
+#include <stk_mesh/base/Selector.hpp>
+#include <stk_mesh/base/MetaData.hpp>
+#include <stk_mesh/base/Part.hpp>
+
+// stk_io
+#include <stk_io/IossBridge.hpp>
+
+// basic c++
+#include <stdexcept>
+#include <string>
+#include <fstream>
+#include <iomanip>
+#include <algorithm>
+#include <sstream>
+
+namespace sierra{
+namespace nalu{
+
+//==========================================================================
+// Class Definition
+//==========================================================================
+// DataProbeSpecInfo - holds DataProbeInfo
+//==========================================================================
+//--------------------------------------------------------------------------
+//-------- constructor -----------------------------------------------------
+//--------------------------------------------------------------------------
+DataProbeSpecInfo::DataProbeSpecInfo()
+{
+  // nothing to do
+}
+
+//--------------------------------------------------------------------------
+//-------- destructor ------------------------------------------------------
+//--------------------------------------------------------------------------
+DataProbeSpecInfo::~DataProbeSpecInfo()
+{
+  // delete the probe info
+  for ( size_t k = 0; k < dataProbeInfo_.size(); ++k )
+    delete dataProbeInfo_[k];
+}
+
+//==========================================================================
+// Class Definition
+//==========================================================================
+// DataProbePostProcessing - post process
+//==========================================================================
+//--------------------------------------------------------------------------
+//-------- constructor -----------------------------------------------------
+//--------------------------------------------------------------------------
+DataProbePostProcessing::DataProbePostProcessing(
+  Realm &realm,
+  const YAML::Node &node)
+  : realm_(realm),
+    outputFreq_(10),
+    w_(36),
+    p_(16),
+    searchMethodName_("none"),
+    searchTolerance_(1.0e-4),
+    searchExpansionFactor_(1.5)
+{
+  // load the data
+  load(node);
+}
+
+//--------------------------------------------------------------------------
+//-------- destructor ------------------------------------------------------
+//--------------------------------------------------------------------------
+DataProbePostProcessing::~DataProbePostProcessing()
+{
+  // delete xfer(s)
+  if ( NULL != transfers_ )
+    delete transfers_;
+
+  // delete data probes specifications vector
+  for ( size_t k = 0; k < dataProbeSpecInfo_.size(); ++k )
+    delete dataProbeSpecInfo_[k];
+}
+
+//--------------------------------------------------------------------------
+//-------- load ------------------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::load(
+  const YAML::Node & y_node)
+{
+  // check for any data probes
+  const YAML::Node y_dataProbe = y_node["data_probes"];
+  if ( y_dataProbe ) {
+    NaluEnv::self().naluOutputP0() << "DataProbePostProcessing::load" << std::endl;
+
+    // extract the frequency of output, width, and precision
+    get_if_present(y_dataProbe, "output_frequency", outputFreq_, outputFreq_);
+    get_if_present(y_dataProbe, "output_width", w_, w_);
+    get_if_present(y_dataProbe, "output_precision", p_, p_);
+
+    // transfer specifications
+    get_if_present(y_dataProbe, "search_method", searchMethodName_, searchMethodName_);
+    get_if_present(y_dataProbe, "search_tolerance", searchTolerance_, searchTolerance_);
+    get_if_present(y_dataProbe, "search_expansion_factor", searchExpansionFactor_, searchExpansionFactor_);
+
+    const YAML::Node y_specs = expect_sequence(y_dataProbe, "specifications", false);
+    if ( y_specs ) {
+      
+      // each specification can have multiple probes
+      for (size_t ispec = 0; ispec < y_specs.size(); ++ispec) {
+        const YAML::Node y_spec = y_specs[ispec];
+
+        DataProbeSpecInfo *probeSpec = new DataProbeSpecInfo();
+        dataProbeSpecInfo_.push_back(probeSpec);
+
+        DataProbeInfo *probeInfo = new DataProbeInfo();
+        probeSpec->dataProbeInfo_.push_back(probeInfo);
+        
+        // name; will serve as the transfer name
+        const YAML::Node theName = y_spec["name"];
+        if ( theName )
+          probeSpec->xferName_ = theName.as<std::string>() ;
+        else
+          throw std::runtime_error("DataProbePostProcessing: no name provided");
+
+        // extract the set of from target names; each spec is homogeneous in this respect
+        const YAML::Node & fromTargets = y_spec["from_target_part"];
+        if ( fromTargets.Type() == YAML::NodeType::Scalar ) {
+          probeSpec->fromTargetNames_.resize(1);
+          probeSpec->fromTargetNames_[0] = fromTargets.as<std::string>() ;
+        }
+        else {
+          probeSpec->fromTargetNames_.resize(fromTargets.size());
+          for (size_t i=0; i < fromTargets.size(); ++i) {
+            probeSpec->fromTargetNames_[i] = fromTargets[i].as<std::string>() ;
+          }
+        }
+        
+        // extract the type of probe, e.g., line of site, ring, plane, etc
+        const YAML::Node y_loss = expect_sequence(y_spec, "line_of_site_specifications", true);
+        const YAML::Node y_rings = expect_sequence(y_spec, "ring_specifications", true);
+        const YAML::Node y_planes = expect_sequence(y_spec, "plane_specifications", true);
+
+        // total number of probes determination; see rules below
+        int numProbes = 0;
+
+        // los rule: one part/probe per line-of-site "-name"
+        if ( y_loss ) {
+          numProbes +=  y_loss.size();
+        }
+
+        // ring rule: one part/probe per iing "-name"
+        if ( y_rings ) {
+          numProbes +=  y_rings.size();
+        }
+
+        // plane rule: one part/probe per plane "-name"
+        if ( y_planes ) {
+          numProbes += y_planes.size();
+        }
+        
+        // set the size
+        probeInfo->numProbes_ = numProbes;
+        
+        // resize is all; general
+        probeInfo->partName_.resize(numProbes);
+        probeInfo->probeOnThisRank_.resize(numProbes,0);
+        probeInfo->numPoints_.resize(numProbes);
+        probeInfo->numLinePoints_.resize(numProbes);
+        probeInfo->numTotalPoints_.resize(numProbes);
+        probeInfo->generateNewIds_.resize(numProbes);
+        probeInfo->nodeVector_.resize(numProbes);
+        probeInfo->part_.resize(numProbes);
+        probeInfo->numPointsOne_.resize(numProbes);
+        probeInfo->numPointsTwo_.resize(numProbes);
+        
+        // resize specific (may be left empty)
+        probeInfo->isLineOfSite_.resize(numProbes, 0);
+        probeInfo->isRing_.resize(numProbes, 0);
+        probeInfo->isPlane_.resize(numProbes, 0);
+        probeInfo->tipCoordinates_.resize(numProbes);
+        probeInfo->tailCoordinates_.resize(numProbes);
+        probeInfo->unitNormal_.resize(numProbes);
+        probeInfo->originCoordinates_.resize(numProbes);
+        probeInfo->tipCoordinatesOne_.resize(numProbes);
+        probeInfo->tipCoordinatesTwo_.resize(numProbes);
+        
+        // deal with processors... Distribute each probe over subsequent procs
+        const int numProcs = NaluEnv::self().parallel_size();
+        const int divProcProbe = std::max(numProcs/numProbes, numProcs);
+        
+        // global number of probes 
+        int probeCounter = 0;
+        
+        // points along a line-of-site
+        if ( y_loss ) {
+          
+          // loop over each line of site probe
+          for (size_t ilos = 0; ilos < y_loss.size(); ++ilos, probeCounter++) {
+
+            const YAML::Node y_los = y_loss[ilos];
+            
+            // l-o-s is active..
+            probeInfo->isLineOfSite_[probeCounter] = 1;
+
+            // processor id; distribute los equally over the number of processors
+            int candidateId = divProcProbe > 0 ? probeCounter % divProcProbe : 0;
+            
+            if ( candidateId == NaluEnv::self().parallel_rank() )
+              probeInfo->probeOnThisRank_[probeCounter] = 1;
+            
+            // name; which is the part name of choice
+            const YAML::Node nameNode = y_los["name"];
+            if ( nameNode )
+              probeInfo->partName_[probeCounter] = nameNode.as<std::string>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking name");
+            
+            // number of points
+            const YAML::Node numPoints = y_los["number_of_points"];
+            if ( numPoints )
+              probeInfo->numPoints_[probeCounter] = numPoints.as<int>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking number_of_points");
+        
+            // set total points/nodes
+            probeInfo->numTotalPoints_[probeCounter] = probeInfo->numPoints_[probeCounter];
+        
+            // coordinates; tip
+            const YAML::Node tipCoord = y_los["tip_coordinates"];
+            if ( tipCoord )
+              probeInfo->tipCoordinates_[probeCounter] = tipCoord.as<sierra::nalu::Coordinates>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tip_coordinates");
+            
+            // coordinates; tail
+            const YAML::Node tailCoord = y_los["tail_coordinates"];
+            if ( tailCoord )
+              probeInfo->tailCoordinates_[probeCounter] = tailCoord.as<sierra::nalu::Coordinates>() ;
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tail_coordinates");        
+          }
+        }
+
+        if ( y_planes ) {
+          
+          // loop over each plane probe
+          for (size_t iplane = 0; iplane < y_planes.size(); ++iplane, probeCounter++) {
+
+            const YAML::Node y_plane = y_planes[iplane];
+            
+            // plane is active..
+            probeInfo->isPlane_[probeCounter] = 1;
+
+            // processor id; distribute plane equally over the number of processors
+            int candidateId = divProcProbe > 0 ? probeCounter % divProcProbe : 0;
+            
+            if ( candidateId == NaluEnv::self().parallel_rank() )
+              probeInfo->probeOnThisRank_[probeCounter] = 1;
+            
+            // name; which is the part name of choice
+            const YAML::Node nameNode = y_plane["name"];
+            if ( nameNode )
+              probeInfo->partName_[probeCounter] = nameNode.as<std::string>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking name");
+            
+            // number of points
+            const YAML::Node numPointsOne = y_plane["number_of_points_dir_one"];
+            if ( !numPointsOne )
+              throw std::runtime_error("DataProbePostProcessing: lacking number_of_points in direction one");
+            const YAML::Node numPointsTwo = y_plane["number_of_points_dir_two"];
+            if ( !numPointsTwo )
+              throw std::runtime_error("DataProbePostProcessing: lacking number_of_points in direction two");
+            const int numPoints = numPointsOne.as<int>() * numPointsTwo.as<int>();
+            probeInfo->numPoints_[probeCounter] = numPoints;
+            probeInfo->numPointsOne_[probeCounter] = numPointsOne.as<int>();
+            probeInfo->numPointsTwo_[probeCounter] = numPointsTwo.as<int>();
+
+            // set total points/nodes
+            probeInfo->numTotalPoints_[probeCounter] = probeInfo->numPoints_[probeCounter];
+        
+            // coordinates; tip
+            const YAML::Node tailCoord = y_plane["tail_coordinates"];
+            if ( tailCoord )
+              probeInfo->tailCoordinates_[probeCounter] = tailCoord.as<sierra::nalu::Coordinates>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tail_coordinates");
+            
+            // coordinates; tip
+            const YAML::Node tipCoordOne = y_plane["tip_coordinates_dir_one"];
+            if ( tipCoordOne )
+              probeInfo->tipCoordinatesOne_[probeCounter] = tipCoordOne.as<sierra::nalu::Coordinates>() ;
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tip_coordinates_dir_one");  
+            const YAML::Node tipCoordTwo = y_plane["tip_coordinates_dir_two"];
+            if ( tipCoordTwo )
+              probeInfo->tipCoordinatesTwo_[probeCounter] = tipCoordTwo.as<sierra::nalu::Coordinates>() ;
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tip_coordinates_dir_two");      
+          }
+        }
+        
+        // define a set of ring of points at a given height
+        if ( y_rings ) {
+
+          // loop over each ring probe          
+          for (size_t iring = 0; iring < y_rings.size(); ++iring, probeCounter++) {
+
+            const YAML::Node y_ring = y_rings[iring] ;
+
+            // ring is active..
+            probeInfo->isRing_[probeCounter] = 1;
+
+            // processor id; distribute rings equally over the number of processors
+            int candidateId = divProcProbe > 0 ? probeCounter % divProcProbe : 0;
+            
+            if ( candidateId == NaluEnv::self().parallel_rank() )
+              probeInfo->probeOnThisRank_[probeCounter] = 1;
+            
+            // name that will be the part of choice
+            const YAML::Node nameNode = y_ring["name"];
+            if ( nameNode )
+              probeInfo->partName_[probeCounter] = nameNode.as<std::string>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking name");
+            
+            // number of points
+            const YAML::Node numPoints = y_ring["number_of_points"];
+            if ( numPoints )
+              probeInfo->numPoints_[probeCounter] = numPoints.as<int>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking number_of_points");
+
+            // number of points in line
+            const YAML::Node numLinePoints = y_ring["number_of_line_points"];
+            if ( numLinePoints )
+              probeInfo->numLinePoints_[probeCounter] = numLinePoints.as<int>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking number_of_line_points");
+      
+            // set total points/nodes
+            probeInfo->numTotalPoints_[probeCounter] 
+              = probeInfo->numPoints_[probeCounter]*probeInfo->numLinePoints_[probeCounter];
+            
+            // coordinates; tip
+            const YAML::Node tipCoord = y_ring["tip_coordinates"];
+            if ( tipCoord )
+              probeInfo->tipCoordinates_[probeCounter] = tipCoord.as<sierra::nalu::Coordinates>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tip_coordinates");
+            
+            // coordinates; tail
+            const YAML::Node tailCoord = y_ring["tail_coordinates"];
+            if ( tailCoord )
+              probeInfo->tailCoordinates_[probeCounter] = tailCoord.as<sierra::nalu::Coordinates>();
+            else
+              throw std::runtime_error("DataProbePostProcessing: lacking tail_coordinates");        
+            
+            // unit normal for vortual plane about which each tip->tail set of nodes are rotated
+            const YAML::Node unitNormal = y_ring["unit_normal"];
+            if ( unitNormal ) {
+              if ( unitNormal.size() != 3 )
+                throw std::runtime_error("DataProbePostProcessing: unit_normal for ring specification must be size 3");
+              for ( size_t i = 0; i < unitNormal.size(); ++i ) {
+                probeInfo->unitNormal_[probeCounter][i] = unitNormal[i].as<double>();
+              }
+            }
+            else {
+              throw std::runtime_error("DataProbePostProcessing: lacking unit_normal");
+            } 
+            
+            // coordinates; origin
+            const YAML::Node originCoords = y_ring["origin_coordinates"];
+            if ( originCoords ) {
+              if ( originCoords.size() != 3 )
+                throw std::runtime_error("DataProbePostProcessing: origin_coordinates for ring specification must be size 3");
+              for ( size_t i = 0; i < originCoords.size(); ++i ) { 
+                probeInfo->originCoordinates_[probeCounter][i] = originCoords[i].as<double>();
+              }
+            }
+            else {
+              throw std::runtime_error("DataProbePostProcessing: lacking origin_coordinates");
+            }
+          }
+        }
+        
+        // extract the output variables
+        const YAML::Node y_outputs = expect_sequence(y_spec, "output_variables", false);
+        if ( y_outputs ) {
+          for (size_t ioutput = 0; ioutput < y_outputs.size(); ++ioutput) {
+            const YAML::Node y_output = y_outputs[ioutput];
+
+            // find the name, size and type
+            const YAML::Node fieldNameNode = y_output["field_name"];
+            const YAML::Node fieldSizeNode = y_output["field_size"];
+
+            if ( !fieldNameNode ) 
+              throw std::runtime_error("DataProbePostProcessing::load() Sorry, field name must be provided");
+            
+            if ( !fieldSizeNode ) 
+              throw std::runtime_error("DataProbePostProcessing::load() Sorry, field size must be provided");
+            
+            // extract data
+            std::string fieldName;
+            int fieldSize;
+            fieldName = fieldNameNode.as<std::string>() ;
+            fieldSize = fieldSizeNode.as<int>() ;
+
+            // push to fromToName
+            std::string fromName = fieldName;
+            std::string toName = fieldName + "_probe";
+            probeSpec->fromToName_.push_back(std::make_pair(fromName, toName));
+
+            // push to probeInfo
+            std::pair<std::string, int> fieldInfoPair = std::make_pair(toName, fieldSize);
+            probeSpec->fieldInfo_.push_back(fieldInfoPair);
+          }
+        }
+      }
+    }
+  }
+}
+
+//--------------------------------------------------------------------------
+//-------- setup -----------------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::setup()
+{
+  // objective: declare the part, register the fields; must be before populate_mesh()
+
+  stk::mesh::MetaData &metaData = realm_.meta_data();
+
+  // first, declare the part
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+    
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+      
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+      
+      // loop over probes... one part per probe
+      for ( int j = 0; j < probeInfo->numProbes_; ++j ) {
+        // extract name
+        std::string partName = probeInfo->partName_[j];
+
+        // declare the part and push it to info; make the part available as a nodeset; check for existance
+        probeInfo->part_[j] = metaData.get_part(partName);
+        if ( NULL == probeInfo->part_[j] ) {
+          probeInfo->part_[j] = &metaData.declare_part(partName, stk::topology::NODE_RANK);
+          stk::io::put_io_part_attribute(*probeInfo->part_[j]);
+          // part was null, signal for generation of ids
+          probeInfo->generateNewIds_[j] = 1;
+        }
+        else {
+          // part was not null, no ids to be generated
+          probeInfo->generateNewIds_[j] = 0;
+        }
+      }
+    }
+  }
+
+  // second, always register the fields
+  const int nDim = metaData.spatial_dimension();
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+    
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+          
+      // loop over probes... register all fields within the ProbInfo on each part
+      for ( int p = 0; p < probeInfo->numProbes_; ++p ) {
+        // extract the part
+        stk::mesh::Part *probePart = probeInfo->part_[p];
+        // everyone needs coordinates to be registered
+        VectorFieldType *coordinates 
+          =  &(metaData.declare_field<double>(stk::topology::NODE_RANK, "coordinates"));
+        stk::mesh::put_field_on_mesh(*coordinates, *probePart, nDim, nullptr);
+        stk::io::set_field_output_type(*coordinates, stk::io::FieldOutputType::VECTOR_3D);
+        // now the general set of fields for this probe
+        for ( size_t j = 0; j < probeSpec->fieldInfo_.size(); ++j ) 
+          register_field(probeSpec->fieldInfo_[j].first, probeSpec->fieldInfo_[j].second, metaData, probePart);
+      }
+    }
+  }
+}
+
+//--------------------------------------------------------------------------
+//-------- initialize ------------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::initialize()
+{
+  // objective: generate the ids, declare the entity(s) and register the fields; 
+  // *** must be after populate_mesh() ***
+  stk::mesh::BulkData &bulkData = realm_.bulk_data();
+  stk::mesh::MetaData &metaData = realm_.meta_data();
+
+  std::vector<std::string> toPartNameVec;
+  std::vector<std::string> fromPartNameVec;
+
+  // the call to declare entities requires a high level mesh modification, however, not one per part
+  bulkData.modification_begin();
+
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+    
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+          
+      for ( int j = 0; j < probeInfo->numProbes_; ++j ) {
+        
+        // extract some things off of the probeInfo
+        stk::mesh::Part *probePart = probeInfo->part_[j];
+        const int numTotalPoints = probeInfo->numTotalPoints_[j];
+        const int probeOnThisRank  = probeInfo->probeOnThisRank_[j];
+        const bool generateNewIds = probeInfo->generateNewIds_[j];
+
+        // Objective: fill the node vec. Two cases: either the part existed (with nodes) or not
+        std::vector<stk::mesh::Entity> &nodeVec = probeInfo->nodeVector_[j];
+
+        // generate new ids is true only if the part was in existance at setup, e.g., a restart
+        if ( generateNewIds > 0 ) {
+          // no previous parts existed, generate new ids based on size of probe
+          std::vector<stk::mesh::EntityId> availableNodeIds(numTotalPoints);
+          // generate_new_ids must be called on all ranks
+          bulkData.generate_new_ids(stk::topology::NODE_RANK, numTotalPoints, availableNodeIds);
+          
+          if ( probeOnThisRank ) {
+            // calling declare_entity on this desired rank determines entity ownership
+            nodeVec.resize(numTotalPoints);
+            for (int i = 0; i < numTotalPoints; ++i) {
+              stk::mesh::Entity theNode = bulkData.declare_entity(stk::topology::NODE_RANK, availableNodeIds[i], *probePart);
+              nodeVec[i] = theNode;
+            }
+          }
+        }
+        else {
+          // previous part existed, make sure that the part has nodes on it already  
+          int checkNumTotalPoints = 0;
+          bool nodesExist = false;
+          
+          stk::mesh::Selector s_local_nodes
+            = metaData.locally_owned_part() &stk::mesh::Selector(*probePart);
+          
+          stk::mesh::BucketVector const& node_buckets = bulkData.get_buckets( stk::topology::NODE_RANK, s_local_nodes );
+          for ( stk::mesh::BucketVector::const_iterator ib = node_buckets.begin() ;
+                ib != node_buckets.end() ; ++ib ) {
+            stk::mesh::Bucket & b = **ib ;
+            for ( stk::mesh::Entity node : b ) {
+              checkNumTotalPoints++;
+              nodeVec.push_back(node);
+              nodesExist = true;
+            }
+          }
+                    
+          // check if nodes exists. 
+          if ( nodesExist ) {
+
+            // subtlety here... if the nodes existed, then ensure that this rank owns the part
+            probeInfo->probeOnThisRank_[j] = 1;
+
+            // sanity check: did the number of points match?
+            if ( checkNumTotalPoints != numTotalPoints ) {
+              std::cout << "Number of points specified within input file does not match nodes that exists: " << probePart->name() << std::endl;
+              std::cout << "The old and new node count is as follows: " << numTotalPoints << " " << checkNumTotalPoints << std::endl;
+              probeInfo->numTotalPoints_[j] = checkNumTotalPoints;
+            }
+          }
+          else {
+            // reinforce that this probve is not on this rank
+            probeInfo->probeOnThisRank_[j] = 0;
+          }
+        }
+      }
+    }
+  }
+  
+  bulkData.modification_end();
+  
+  // populate values for coord; probe stays the same place
+  // FIXME: worry about mesh motion (if the probe moves around?)
+  VectorFieldType *coordinates = metaData.get_field<double>(stk::topology::NODE_RANK, "coordinates");
+
+  const int nDim = metaData.spatial_dimension();
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+    
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+          
+      // loop over probes
+      for ( int j = 0; j < probeInfo->numProbes_; ++j ) {
+        
+        // reference to the nodeVector
+        std::vector<stk::mesh::Entity> &nodeVec = probeInfo->nodeVector_[j];
+        
+        // extract the tip/tail
+        std::vector<double> tipC(nDim);
+        std::vector<double> tailC(nDim);
+        tipC[0] = probeInfo->tipCoordinates_[j].x_;
+        tipC[1] = probeInfo->tipCoordinates_[j].y_;
+        tailC[0] = probeInfo->tailCoordinates_[j].x_;
+        tailC[1] = probeInfo->tailCoordinates_[j].y_;
+        if ( nDim > 2) {
+          tipC[2] = probeInfo->tipCoordinates_[j].z_;
+          tailC[2] = probeInfo->tailCoordinates_[j].z_;
+        }
+       
+        // check if the jth probeInfo is a line-of-site
+        if ( 1 == probeInfo->isLineOfSite_[j] ) {
+        
+          const int numPointsD = std::max(1, probeInfo->numPoints_[j] - 1);
+          
+          // determine the delta for each node in a subsequent Tail--->Tip
+          double dx[3] = {};
+          for ( int p = 0; p < nDim; ++p )
+            dx[p] = (tipC[p] - tailC[p])/(double)numPointsD;
+          
+          // now populate the coordinates; can use a simple loop rather than buckets
+          for ( size_t n = 0; n < nodeVec.size(); ++n ) {
+            stk::mesh::Entity node = nodeVec[n];
+            double * coords = stk::mesh::field_data(*coordinates, node );
+            for ( int i = 0; i < nDim; ++i )
+              coords[i] = tailC[i] + n*dx[i];
+          }
+        }
+        else if ( 1 == probeInfo->isRing_[j] ) {
+          
+          const int numLinePointsD = std::max(1, probeInfo->numLinePoints_[j] - 1);
+          
+          // determine the delta for each node in a subsequent Tail--->Tip
+          double dx[3] = {};
+          for ( int p = 0; p < nDim; ++p )
+            dx[p] = (tipC[p] - tailC[p])/(double)numLinePointsD;
+          
+          // fill in as 3D
+          std::vector<double> unitNormal(3,0.0);
+          for ( size_t i = 0; i < probeInfo->unitNormal_[j].size(); ++i )
+            unitNormal[i] = probeInfo->unitNormal_[j][i];
+          
+          std::vector<double> originCoords(3,0.0);
+          for ( size_t i = 0; i < probeInfo->originCoordinates_[j].size(); ++i )
+            originCoords[i] = probeInfo->originCoordinates_[j][i];
+          
+          // rotation matrix and new coordinates
+          std::vector<double> R(3*3, 0.0);
+          std::vector<double> newCoords(3,0.0);
+          std::vector<double> translatedSeedCoords(3,0.0);
+
+          for ( int k = 0; k < probeInfo->numLinePoints_[j]; ++k ) {
+            // determine translated coordinates for seed (assume 0,0,0 origin)
+            for ( int tc = 0; tc < nDim; ++tc ) {
+              const double newX = tailC[tc]+k*dx[tc];
+              translatedSeedCoords[tc] = newX - originCoords[tc];
+            }
+          
+            // extract number of points in the ring
+            const int numRingPoints = probeInfo->numPoints_[j];
+            
+            const double dTheta = 2.0*std::acos(-1.0)/(double)numRingPoints;
+          
+            // now populate the coordinates; can use a simple loop rather than buckets
+            double currentTheta = 0.0;
+            for ( size_t n = k*numRingPoints; n < nodeVec.size(); ++n ) {
+            
+              // rotate and increment theta
+              compute_R(currentTheta, unitNormal, R);
+              mat_vec(translatedSeedCoords, R, newCoords);
+              currentTheta += dTheta;
+              
+              // populate node coordinates
+              stk::mesh::Entity node = nodeVec[n];
+              double * coords = stk::mesh::field_data(*coordinates, node );
+              for ( int i = 0; i < nDim; ++i ) {
+                // add back in the translated distance.
+                coords[i] = newCoords[i] + originCoords[i];
+              }
+            } 
+          }
+        }
+        else if ( 1 == probeInfo->isPlane_[j] ) {
+          // extract the tip/tail
+          std::vector<double> tailC(nDim);
+          std::vector<double> tipCOne(nDim);
+          std::vector<double> tipCTwo(nDim);
+          tailC[0] = probeInfo->tailCoordinates_[j].x_;
+          tailC[1] = probeInfo->tailCoordinates_[j].y_;
+          tipCOne[0] = probeInfo->tipCoordinatesOne_[j].x_;
+          tipCOne[1] = probeInfo->tipCoordinatesOne_[j].y_;
+          tipCTwo[0] = probeInfo->tipCoordinatesTwo_[j].x_;
+          tipCTwo[1] = probeInfo->tipCoordinatesTwo_[j].y_;
+          if ( nDim > 2) {
+            tailC[2] = probeInfo->tailCoordinates_[j].z_;
+            tipCOne[2] = probeInfo->tipCoordinatesOne_[j].z_;
+            tipCTwo[2] = probeInfo->tipCoordinatesTwo_[j].z_;
+          }
+          const int numPointsDOne = std::max(1, probeInfo->numPointsOne_[j] - 1);
+          const int numPointsDTwo = std::max(2, probeInfo->numPointsTwo_[j] - 1);
+          
+          // determine the delta for each node in a subsequent Tail--->Tip
+          double dx1[3] = {};
+          double dx2[3] = {};
+          for ( int p = 0; p < nDim; ++p ) {
+            dx1[p] = (tipCOne[p] - tailC[p])/(double)numPointsDOne;
+            dx2[p] = (tipCTwo[p] - tailC[p])/(double)numPointsDTwo;
+          }
+          
+          // now populate the coordinates; can use a simple loop rather than buckets
+          for ( size_t n = 0; n < nodeVec.size(); ++n ) {
+            stk::mesh::Entity node = nodeVec[n];
+            double * coords = stk::mesh::field_data(*coordinates, node );
+            const int idx1 = n % probeInfo->numPointsOne_[j];
+            const int idx2 = n / probeInfo->numPointsOne_[j];
+            for ( int i = 0; i < nDim; ++i )
+              coords[i] = tailC[i] + idx1*dx1[i] + idx2*dx2[i];
+          }
+
+        }
+        else {
+          throw std::runtime_error("DataProbePostProcessing: only supports line_of_site_specifications, ring_specifications, or plane_specifications");
+        }
+      }   
+    }
+  }
+
+  create_transfer();
+}
+  
+//--------------------------------------------------------------------------
+//-------- register_field --------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::register_field(
+  const std::string fieldName,
+  const int fieldSize,
+  stk::mesh::MetaData &metaData,
+  stk::mesh::Part *part)
+{
+  // check for velocity as this is the only current vector supported
+  if ( fieldName.find("velocity") != std::string::npos ) { //FIXME: require FieldType as in InputOutpu and TurbAverga
+    VectorFieldType *someVelocity = &(metaData.declare_field<double>(stk::topology::NODE_RANK, fieldName));
+    stk::mesh::put_field_on_mesh(*someVelocity, *part, fieldSize, nullptr);
+    stk::io::set_field_output_type(*someVelocity, stk::io::FieldOutputType::VECTOR_3D);
+  }
+  else {
+    stk::mesh::Field<double> *toField
+      = &(metaData.declare_field<double>(stk::topology::NODE_RANK, fieldName));
+    stk::mesh::put_field_on_mesh(*toField, *part, fieldSize, nullptr);
+  }
+}
+
+//--------------------------------------------------------------------------
+//-------- create_transfer -------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::create_transfer()
+{  
+  stk::mesh::MetaData &metaData = realm_.meta_data();
+
+  // create a [dummy] transfers
+  transfers_ = new Transfers(*realm_.root());
+
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+
+    // new a transfer and push back
+    Transfer *theTransfer = new Transfer(*transfers_);
+    transfers_->transferVector_.push_back(theTransfer);
+
+    // set some data on the transfer
+    theTransfer->name_ = probeSpec->xferName_;
+    theTransfer->fromRealm_ = &realm_;
+    theTransfer->toRealm_ = &realm_;
+    theTransfer->searchMethodName_ = searchMethodName_;
+    theTransfer->searchTolerance_ = searchTolerance_;
+    theTransfer->searchExpansionFactor_ = searchExpansionFactor_;
+
+    // provide from/to parts
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+    
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+
+      // extract field names (homegeneous over all probes)
+      for ( size_t j = 0; j < probeSpec->fromToName_.size(); ++j )
+        theTransfer->transferVariablesPairName_.push_back(std::make_pair(probeSpec->fromToName_[j].first, 
+                                                                         probeSpec->fromToName_[j].second));
+          
+      // accumulate all of the From parts for this Specification
+      for ( size_t j = 0; j < probeSpec->fromTargetNames_.size(); ++j ) {
+        std::string fromTargetName = probeSpec->fromTargetNames_[j];
+        stk::mesh::Part *fromTargetPart = metaData.get_part(fromTargetName);
+        if ( NULL == fromTargetPart ) {
+          throw 
+            std::runtime_error("DataProbePostProcessing::create_transfer() Trouble with part, " + fromTargetName);
+        }
+        else {
+          theTransfer->fromPartVec_.push_back(fromTargetPart);
+        }
+      }
+
+      // accumulate all of the To parts for this Specification (sum over all probes)
+      for ( int j = 0; j < probeInfo->numProbes_; ++j ) {
+        theTransfer->toPartVec_.push_back(probeInfo->part_[j]);
+      }
+    }
+  }
+
+  // okay, ready to call through Transfers to do the real work
+  transfers_->initialize();
+}  
+//--------------------------------------------------------------------------
+//-------- review ----------------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::review(
+  const DataProbeInfo *probeInfo)
+{
+  // may or may not want this
+}
+
+//--------------------------------------------------------------------------
+//-------- execute ---------------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::execute()
+{
+  // only do work if this is an output step
+  const double currentTime = realm_.get_current_time();
+  const int timeStepCount = realm_.get_time_step_count();
+  const bool isOutput = timeStepCount % outputFreq_ == 0;
+
+  if ( isOutput ) {
+    // execute and provide results...
+    transfers_->execute();
+    provide_output(currentTime);
+  }
+}
+
+//--------------------------------------------------------------------------
+//-------- provide_output --------------------------------------------------
+//--------------------------------------------------------------------------
+void
+DataProbePostProcessing::provide_output(
+  const double currentTime)
+{ 
+  stk::mesh::MetaData &metaData = realm_.meta_data();
+  stk::mesh::BulkData &bulkData = realm_.bulk_data();
+  VectorFieldType *coordinates 
+    = metaData.get_field<double>(stk::topology::NODE_RANK, "coordinates");
+  
+  const int nDim = metaData.spatial_dimension();
+ 
+  for ( size_t idps = 0; idps < dataProbeSpecInfo_.size(); ++idps ) {
+
+    DataProbeSpecInfo *probeSpec = dataProbeSpecInfo_[idps];
+    
+    for ( size_t k = 0; k < probeSpec->dataProbeInfo_.size(); ++k ) {
+    
+      DataProbeInfo *probeInfo = probeSpec->dataProbeInfo_[k];
+          
+      for ( int inp = 0; inp < probeInfo->numProbes_; ++inp ) {
+
+        // open the file for this probe
+        if ( probeInfo->probeOnThisRank_[inp] ) {    
+
+          const std::string fileName = probeInfo->partName_[inp] + ".dat";
+          std::ofstream myfile;
+          
+          // one banner per file 
+          const bool addBanner = std::ifstream(fileName.c_str()) ? false : true;
+
+          myfile.open(fileName.c_str(), std::ios_base::app);
+
+          // provide banner for current time, nodeId, coordinates, field 1, field 2, etc
+          if ( addBanner ) {
+            myfile << "Time" << std::setw(w_) << "Node_Id" << std::setw(w_);
+            
+            for ( int jj = 0; jj < nDim; ++jj )
+              myfile << "coordinates[" << jj << "]" << std::setw(w_);          
+            
+            for ( size_t ifi = 0; ifi < probeSpec->fieldInfo_.size(); ++ifi ) {
+              const std::string fieldName = probeSpec->fieldInfo_[ifi].first;
+              const int fieldSize = probeSpec->fieldInfo_[ifi].second;
+              
+              for ( int jj = 0; jj < fieldSize; ++jj ) {
+                myfile << fieldName << "[" << jj << "]" << std::setw(w_);
+              } 
+            }
+            
+            // banner complete
+            myfile << std::endl;
+          }
+
+          // set precision and style
+          myfile.precision(p_);
+
+          // reference to the nodeVector
+          std::vector<stk::mesh::Entity> &nodeVec = probeInfo->nodeVector_[inp];
+          
+          // output in a single row
+          for ( size_t inv = 0; inv < nodeVec.size(); ++inv ) {
+            stk::mesh::Entity node = nodeVec[inv];
+            double * theCoord = (double*)stk::mesh::field_data(*coordinates, node );
+            
+            // always output time, node id, and coordinates
+            myfile << std::left << std::setw(w_) << std::scientific << currentTime << std::setw(w_) <<  bulkData.identifier(node) << std::setw(w_);
+            for ( int jj = 0; jj < nDim; ++jj ) {
+              myfile << std::scientific << theCoord[jj] << std::setw(w_);
+            }
+
+            // now all of the other fields required
+            for ( size_t ifi = 0; ifi < probeSpec->fieldInfo_.size(); ++ifi ) {
+              const std::string fieldName = probeSpec->fieldInfo_[ifi].first;
+              const stk::mesh::FieldBase *theField = metaData.get_field(stk::topology::NODE_RANK, fieldName);
+              double * theF = (double*)stk::mesh::field_data(*theField, node );
+               
+              const int fieldSize = probeSpec->fieldInfo_[ifi].second;
+              for ( int jj = 0; jj < fieldSize; ++jj ) {
+                myfile << std::scientific << theF[jj] << std::setw(w_);
+              }
+            }
+            // node output complete
+            myfile << std::endl;
+          }
+          // all nodal output is complete, close
+          myfile.close();
+        }
+        else {
+          // nothing to do for this probe on this processor
+        } 
+      }
+    }
+  }
+}
+
+void 
+DataProbePostProcessing::compute_R(
+  const double theta, const std::vector<double> &u, std::vector<double> &R ) 
+{
+  const double sT = std::sin(theta);
+  const double cT = std::cos(theta);
+  const double om_cT = 1.0 - cT;
+  
+  R[0] = cT + u[0]*u[0]*om_cT;
+  R[1] = u[0]*u[1]*om_cT-u[2]*sT;
+  R[2] = u[0]*u[2]*om_cT+u[1]*sT;
+  
+  R[3] = u[1]*u[0]*om_cT+u[2]*sT;
+  R[4] = cT+u[1]*u[1]*om_cT;
+  R[5] = u[1]*u[2]*om_cT-u[0]*sT;
+  
+  R[6] = u[2]*u[0]*om_cT-u[1]*sT;
+  R[7] = u[2]*u[1]*om_cT+u[0]*sT;
+  R[8] = cT+u[2]*u[2]*om_cT;
+
+}
+
+void 
+DataProbePostProcessing::mat_vec(
+  const std::vector<double> &coord, const std::vector<double> &R, std::vector<double> &newCoord) 
+{
+  // mat-vec
+  size_t nDim = coord.size();
+  for ( size_t i = 0; i < nDim; ++i ) {
+    double ci = 0.0;
+    for ( size_t j = 0; j < nDim; ++j ) {
+      ci += coord[j]*R[i*nDim+j]; 
+    }
+    newCoord[i] = ci;
+  }
+}
+
+ 
+} // namespace nalu
+} // namespace Sierra

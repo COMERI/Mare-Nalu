@@ -1,0 +1,35 @@
+
+nalu_build_dir="PathToTopLevelNaluBuildDirectory"
+
+z_lib_path=$nalu_build_dir/install/zlib/1.2.11/
+z_lib_name=libz.so
+EXTRA_ARGS=$@
+
+# Cleanup old cache before we configure
+# Note:  This does not remove files produced by make.  Use "make clean" for this.
+find . -name "CMakeFiles" -exec rm -rf {} \;
+rm -f CMakeCache.txt
+
+cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=$nalu_build_dir/paraview-superbuild-install \
+  -DBUILD_TESTING:BOOL=OFF \
+  -DENABLE_osmesa:BOOL=ON \
+  -Dmesa_USE_SWR:BOOL=OFF \
+  -DENABLE_paraview:BOOL=ON \
+  -DENABLE_paraviewsdk:BOOL=ON \
+  -DBUILD_SHARED_LIBS:BOOL=ON \
+  -DBUILD_SHARED_LIBS_paraview=OFF \
+  -DENABLE_png:BOOL=ON \
+  -DENABLE_python:BOOL=ON \
+  -DENABLE_python3:BOOL=ON \
+  -DENABLE_vtkm:BOOL=OFF \
+  -DPARAVIEW_ENABLE_MOTIONFX:BOOL=OFF \
+  -Dparaview_SOURCE_SELECTION=5.9.0 \
+  -DUSE_SYSTEM_zlib:BOOL=ON \
+  -DZLIB_INCLUDE_DIR:FILEPATH=$z_lib_path/include \
+  -DZLIB_LIBRARY_RELEASE:FILEPATH=$z_lib_path/lib/$z_lib_name \
+  -DENABLE_mpi:BOOL=ON \
+  -DUSE_SYSTEM_mpi:BOOL=ON \
+$EXTRA_ARGS \
+$nalu_build_dir/packages/paraview-superbuild

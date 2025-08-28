@@ -1,0 +1,33 @@
+/*------------------------------------------------------------------------*/
+/*  Copyright 2025 COMERI.                                                */
+/*  This software is released under the license detailed                  */
+/*  in the file, LICENSE, which is located in the top-level Mare-Nalu     */
+/*  directory structure                                                   */
+/*------------------------------------------------------------------------*/
+
+
+#include <SupplementalAlgorithm.h>
+
+// stk_mesh/base/fem
+#include <stk_mesh/base/Entity.hpp>
+
+namespace sierra{
+namespace nalu{
+
+//==========================================================================
+// Class Definition
+//==========================================================================
+// SupplementalAlgorithm - base class for algorithm
+//==========================================================================
+//--------------------------------------------------------------------------
+//-------- constructor -----------------------------------------------------
+//--------------------------------------------------------------------------
+SupplementalAlgorithm::SupplementalAlgorithm(
+  Realm &realm) 
+  : realm_(realm)
+{
+  // nothing to do
+}
+
+} // namespace nalu
+} // namespace Sierra
