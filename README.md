@@ -1,4 +1,4 @@
-![NaluLogo](https://github.com/COMERI/Mare-Nalu/blob/main/logo/naluLowMach.jpg "Feel free to use this logo; designed by SRDomino")
+![NaluLogo](https://github.com/COMERI/Mare-Nalu/blob/main/logo/MareNalu.jpg "Feel free to use this logo; designed by SRDomino")
 
 Mare-Nalu, a generalized unstructured massively parallel low Mach flow code designed to support marine applications of interest.
 Code is forked from the Sandia National Labs [Nalu code base](http://github.com/NaluCFD/Nalu).
