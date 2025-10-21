@@ -203,6 +203,7 @@ realms:
           reynolds_averaged_variables:
             - yplus
             - tau_wall
+            - tau_wall_vector
 
     output:
       output_data_base_name: 3d_hex8_turb_channel.e
@@ -227,6 +228,7 @@ realms:
        - tau_wall
        - yplus_ra_two
        - tau_wall_ra_two
+       - tau_wall_vector_ra_two
        - assembled_area_force_moment_wfp
        - velocity_probe
        - turbulent_viscosity_probe

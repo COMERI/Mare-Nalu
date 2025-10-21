@@ -186,6 +186,7 @@ realms:
        - scalar_variance
        - scalar_dissipation
        - tau_wall
+       - tau_wall_vector
        - yplus
 
     restart:

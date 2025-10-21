@@ -187,6 +187,7 @@ realms:
        - mesh_displacement
        - pressure_force_ra_one
        - tau_wall_ra_one
+       - tau_wall_vector_ra_one
        - yplus_ra_one
        - resolved_turbulent_ke_ra_one
        - reynolds_stress
@@ -224,6 +225,7 @@ realms:
           reynolds_averaged_variables:
             - pressure_force
             - tau_wall
+            - tau_wall_vector
             - yplus
             - resolved_turbulent_ke
 

@@ -60,6 +60,7 @@ SurfaceForceAndMomentAlgorithm::SurfaceForceAndMomentAlgorithm(
     pressure_(nullptr),
     pressureForce_(nullptr),
     tauWall_(nullptr),
+    tauWallVec_(nullptr),
     yplus_(nullptr),
     density_(nullptr),
     viscosity_(nullptr),
@@ -73,6 +74,7 @@ SurfaceForceAndMomentAlgorithm::SurfaceForceAndMomentAlgorithm(
   pressure_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "pressure");
   pressureForce_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "pressure_force");
   tauWall_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "tau_wall");
+  tauWallVec_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "tau_wall_vector");
   yplus_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "yplus");
   density_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "density");
   // extract viscosity name
@@ -262,6 +264,7 @@ SurfaceForceAndMomentAlgorithm::execute()
         const double *duidxj = stk::mesh::field_data(*dudx_, node );
         double *pressureForce = stk::mesh::field_data(*pressureForce_, node );
         double *tauWall = stk::mesh::field_data(*tauWall_, node );
+        double *tauWallVec = stk::mesh::field_data(*tauWallVec_, node );
         double *yplus = stk::mesh::field_data(*yplus_, node );
         const double assembledArea = *stk::mesh::field_data(*assembledArea_, node );
 
@@ -274,6 +277,9 @@ SurfaceForceAndMomentAlgorithm::execute()
         }
         aMag = std::sqrt(aMag);
 
+	// assembly factor (area-weighed)
+	const double areaFac = aMag/assembledArea;
+        
         // normal
         for ( int i = 0; i < nDim; ++i ) {
           const double ai = areaVec[offSetAveraVec+i];
@@ -310,11 +316,11 @@ SurfaceForceAndMomentAlgorithm::execute()
             if ( i != j )
               tauiTangential -= ws_normal[i]*ws_normal[j]*ws_tau[j];
           }
+	  tauWallVec[i] += tauiTangential*areaFac;
           tauTangential += tauiTangential*tauiTangential;
         }
 
         // assemble nodal quantities; scaled by area for L2 lumped nodal projection
-        const double areaFac = aMag/assembledArea;
         *tauWall += std::sqrt(tauTangential)*areaFac;
 
         cross_product(&ws_t_force[0], &ws_moment[0], &ws_radius[0]);

@@ -128,6 +128,7 @@ realms:
        - viscosity
        - density
        - tau_wall
+       - tau_wall_vector
 
 Time_Integrators:
   - StandardTimeIntegrator:

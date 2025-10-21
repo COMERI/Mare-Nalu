@@ -62,6 +62,7 @@ SurfaceForceAndMomentWallFunctionAlgorithm::SurfaceForceAndMomentWallFunctionAlg
     pressure_(nullptr),
     pressureForce_(nullptr),
     tauWall_(nullptr),
+    tauWallVec_(nullptr),
     yplus_(nullptr),
     bcVelocity_(nullptr),
     density_(nullptr),
@@ -78,6 +79,7 @@ SurfaceForceAndMomentWallFunctionAlgorithm::SurfaceForceAndMomentWallFunctionAlg
   pressure_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "pressure");
   pressureForce_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "pressure_force");
   tauWall_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "tau_wall");
+  tauWallVec_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "tau_wall_vector");
   yplus_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "yplus");
   bcVelocity_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "wall_velocity_bc");
   density_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "density");
@@ -336,6 +338,7 @@ SurfaceForceAndMomentWallFunctionAlgorithm::execute()
         const double * coord = stk::mesh::field_data(*coordinates_, node );
         double *pressureForce = stk::mesh::field_data(*pressureForce_, node );
         double *tauWall = stk::mesh::field_data(*tauWall_, node );
+        double *tauWallVec = stk::mesh::field_data(*tauWallVec_, node );
         double *yplus = stk::mesh::field_data(*yplus_, node );
         const double assembledArea = *stk::mesh::field_data(*assembledArea_, node );
 
@@ -349,6 +352,7 @@ SurfaceForceAndMomentWallFunctionAlgorithm::execute()
           ws_v_force[i] = lambda*uDiff;
           ws_t_force[i] = ws_p_force[i] + ws_v_force[i];
           pressureForce[i] += ws_p_force[i];
+	  tauWallVec[i] += ws_v_force[i]/assembledArea;
           uParallel += uDiff*uDiff;
         }
 
