@@ -28,7 +28,7 @@ in which Homebrew has installed them, to use when building Trilinos and Nalu.
     brew install cmake
     brew install libxml2
 
-CMake v3.17.0
+CMake v3.31.9
 ~~~~~~~~~~~~~
 
 CMake is provided `here <http://www.cmake.org/download/>`__. The version
@@ -40,14 +40,14 @@ Prepare:
 ::
 
     cd $nalu_build_dir/packages
-    tar -xf cmake-3.17.0.tar.gz
+    tar -xf cmake-3.31.9.tar.gz
 
 Build:
 
 ::
 
-    cd $nalu_build_dir/packages/cmake-3.17.0
-    ./configure --prefix=$nalu_install_dir/cmake/3.17.0
+    cd $nalu_build_dir/packages/cmake-3.31.9
+    ./configure --prefix=$nalu_install_dir/cmake/3.31.9
     make
     make install
 
@@ -94,7 +94,6 @@ Prepare:
 ::
 
     cd $nalu_build_dir/packages
-    curl -o zlib-1.2.11.tar.gz https://zlib.net/fossils/zlib-1.2.11.tar.gz
     tar -zxvf zlib-1.2.11.tar.gz
 
 Build:
@@ -106,34 +105,34 @@ Build:
     make
     make install
 
-HDF5 v1.10.6
+HDF5 v1.13.0
 ~~~~~~~~~~~~
 
-HDF5 1.10.6 is provided `here <http://www.hdfgroup.org/downloads/index.html>`__.
+HDF5 1.13.0 is provided `here <http://www.hdfgroup.org/downloads/index.html>`__.
 
 Prepare:
 
 ::
 
     cd $nalu_build_dir/packages/
-    tar -xvf hdf5-1.10.6.tar
+    tar -xvf hdf5-1.13.0.tar
 
 Build:
 
 ::
 
-    cd $nalu_build_dir/packages/hdf5-1.10.6
-    ./configure CC=mpicc FC=mpif90 CXX=mpicxx CXXFLAGS="-fPIC -O3" CFLAGS="-fPIC -O3" FCFLAGS="-fPIC -O3" --enable-parallel --with-zlib=$nalu_install_dir/zlib/1.2.11 --prefix=$nalu_install_dir/hdf5/1.10.6
+    cd $nalu_build_dir/packages/hdf5-1.13.0
+    ./configure CC=mpicc FC=mpif90 CXX=mpicxx CXXFLAGS="-fPIC -O3" CFLAGS="-fPIC -O3" FCFLAGS="-fPIC -O3" --enable-parallel --with-zlib=$nalu_install_dir/zlib/1.2.11 --prefix=$nalu_install_dir/hdf5/1.13.0
     make
     make install
     make check
 
-NetCDF v4.7.4 and Parallel NetCDF v1.12.1
+NetCDF v4.9.3 and Parallel NetCDF v1.13.0
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 In order to support all aspects of Nalu's parallel models, NetCDF and Parallel NetCFD must be consistent.
 
-Parallel NetCDF v1.12.1
+Parallel NetCDF v1.13.0
 ***********************
 
 Parallel NetCDF is provided on the `Argon Trac Page <https://trac.mcs.anl.gov/projects/parallel-netcdf/wiki/Download>`__. Newer versions
@@ -144,20 +143,20 @@ Prepare:
 ::
 
     cd $nalu_build_dir/packages/
-    tar -zxvf pnetcdf-1.12.1.tar.gz
+    tar -zxvf pnetcdf-1.13.0.tar.gz
 
 Build:
 
 ::
 
-    cd pnetcdf-1.12.1
-    ./configure --prefix=$nalu_install_dir/pnetcdf/1.12.1 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/pnetcdf/1.12.1/include -O3" LDFLAGS=-L$nalu_install_dir/pnetcdf/1.12.1/lib --disable-fortran
+    cd pnetcdf-1.13.0
+    ./configure --prefix=$nalu_install_dir/pnetcdf/1.13.0 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/pnetcdf/1.13.0/include -O3" LDFLAGS=-L$nalu_install_dir/pnetcdf/1.13.0/lib --disable-fortran
     make
     make install
 
 Note that we have created an install directory that might look like ``$nalu_build_dir/install``.
 
-NetCDF v4.7.4
+NetCDF v4.9.3
 *************
 
 NetCDF is provided `here <https://github.com/Unidata/netcdf-c/releases>`__.
@@ -167,15 +166,14 @@ Prepare:
 ::
 
     cd $nalu_build_dir/packages/
-    curl -o netcdf-c-4.7.4.tar.gz https://codeload.github.com/Unidata/netcdf-c/tar.gz/v4.7.4
-    tar -zxvf netcdf-c-4.7.4.tar.gz 
+    tar -zxvf netcdf-c-4.9.3.tar.gz 
 
 Build:
 
 ::
 
-    cd netcdf-c-4.7.4/
-    ./configure --prefix=$nalu_install_dir/netcdf/4.7.4 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/hdf5/1.10.6/include -I$nalu_install_dir/pnetcdf/1.12.1/include -O3" CPPFLAGS=${CFLAGS} LDFLAGS="-L$nalu_install_dir/hdf5/1.10.6/lib -L$nalu_install_dir/pnetcdf/1.12.1/lib -L$nalu_install_dir/zlib/1.2.11/lib -Wl,--rpath=$nalu_install_dir/hdf5/1.10.6/lib" --enable-pnetcdf --enable-parallel-tests --enable-netcdf-4 --disable-shared --disable-fsync --disable-cdmremote --disable-dap --disable-doxygen --disable-v2
+    cd netcdf-c-4.9.3/
+    ./configure --prefix=$nalu_install_dir/netcdf/4.9.3 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/hdf5/1.13.0/include -I$nalu_install_dir/pnetcdf/1.13.0/include -O3" CPPFLAGS=${CFLAGS} LDFLAGS="-L$nalu_install_dir/hdf5/1.13.0/lib -L$nalu_install_dir/pnetcdf/1.13.0/lib -L$nalu_install_dir/zlib/1.2.11/lib -Wl,--rpath=$nalu_install_dir/hdf5/1.13.0/lib" --enable-pnetcdf --enable-parallel-tests --enable-netcdf-4 --disable-shared --disable-fsync --disable-cdmremote --disable-dap --disable-doxygen --disable-v2
     make -j 4 
     make check
     make install

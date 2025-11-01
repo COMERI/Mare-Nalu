@@ -36,13 +36,13 @@ echo Hdf5 ............CLEAN
 
 cd $BASE_DIR
 echo Hdf5 ............CLEAN
-mv hdf5-1.10.10 previous
-cp tarFiles/hdf5-1.10.10.tar.gz ./
-tar -zxvf hdf5-1.10.10.tar.gz
-rm -rf hdf5-1.10.10.tar.gz
-cd hdf5-1.10.10/
+mv hdf5-1.13.0 previous
+cp tarFiles/hdf5-1.13.0.tar.gz ./
+tar -zxvf hdf5-1.13.0.tar.gz
+rm -rf hdf5-1.13.0.tar.gz
+cd hdf5-1.13.0/
 echo Hdf5 ............CONFIG
-./configure CC=mpicc FC=mpif90 CXX=mpicxx CXXFLAGS="-fPIC -O3" CFLAGS="-fPIC -O3" FCFLAGS="-fPIC -O3" --enable-parallel --with-zlib=$nalu_install_dir/zlib/1.2.11 --prefix=$nalu_install_dir/hdf5/1.10.10
+./configure CC=mpicc FC=mpif90 CXX=mpicxx CXXFLAGS="-fPIC -O3" CFLAGS="-fPIC -O3" FCFLAGS="-fPIC -O3" --enable-parallel --with-zlib=$nalu_install_dir/zlib/1.2.11 --prefix=$nalu_install_dir/hdf5/1.13.0
 echo Hdf5 ............BUILD
 make -j 32
 echo Hdf5 ............INSTALL
@@ -50,13 +50,13 @@ make install
 
 cd $BASE_DIR
 echo Pnetcdf ............CLEAN
-mv pnetcdf-1.12.2 previous
-cp tarFiles/pnetcdf-1.12.2.tar.gz ./
-tar -zxvf pnetcdf-1.12.2.tar.gz
-rm -rf pnetcdf-1.12.2.tar.gz
-cd pnetcdf-1.12.2
+mv pnetcdf-1.13.0 previous
+cp tarFiles/pnetcdf-1.13.0.tar.gz ./
+tar -zxvf pnetcdf-1.13.0.tar.gz
+rm -rf pnetcdf-1.13.0.tar.gz
+cd pnetcdf-1.13.0
 echo Pnetcdf ............CONFIG
-./configure --prefix=$nalu_install_dir/pnetcdf/1.12.2 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/pnetcdf/1.12.2/include -O3" LDFLAGS=-L$nalu_install_dir/pnetcdf/1.12.2/lib --disable-fortran
+./configure --prefix=$nalu_install_dir/pnetcdf/1.13.0 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/pnetcdf/1.13.0/include -O3" LDFLAGS=-L$nalu_install_dir/pnetcdf/1.13.0/lib --disable-fortran
 echo Pnetcdf ............BUILD
 make -j 32
 echo Pnetcdf ............BUILD
@@ -64,13 +64,13 @@ make install
 
 cd $BASE_DIR
 echo Netcdf ............CLEAN
-mv netcdf-c-4.8.1.tar.gz previous
-cp tarFiles/netcdf-c-4.8.1.tar.gz ./
-tar -zxvf netcdf-c-4.8.1.tar.gz
-rm -rf netcdf-c-4.8.1.tar.gz
-cd netcdf-c-4.8.1
+mv netcdf-c-4.9.3.tar.gz previous
+cp tarFiles/netcdf-c-4.9.3.tar.gz ./
+tar -zxvf netcdf-c-4.9.3.tar.gz
+rm -rf netcdf-c-4.9.3.tar.gz
+cd netcdf-c-4.9.3
 echo Netcdf ............CONFIG
-./configure --prefix=$nalu_install_dir/netcdf/4.8.1 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/hdf5/1.10.10/include -I$nalu_install_dir/pnetcdf/1.12.2/include -O3" CPPFLAGS=${CFLAGS} LDFLAGS="-L$nalu_install_dir/hdf5/1.10.10/lib -L$nalu_install_dir/pnetcdf/1.12.2/lib -L$nalu_install_dir/zlib/1.2.11/lib -Wl,--rpath=$nalu_install_dir/hdf5/1.10.10/lib" --enable-pnetcdf --enable-parallel-tests --enable-netcdf-4 --disable-shared --disable-fsync --disable-cdmremote --disable-dap --disable-doxygen --disable-v2
+./configure --prefix=$nalu_install_dir/netcdf/4.9.3 CC=mpicc FC=mpif90 CXX=mpicxx CFLAGS="-I$nalu_install_dir/hdf5/1.13.0/include -I$nalu_install_dir/pnetcdf/1.13.0/include -O3" CPPFLAGS=${CFLAGS} LDFLAGS="-L$nalu_install_dir/hdf5/1.13.0/lib -L$nalu_install_dir/pnetcdf/1.13.0/lib -L$nalu_install_dir/zlib/1.2.11/lib -Wl,--rpath=$nalu_install_dir/hdf5/1.13.0/lib" --enable-pnetcdf --enable-parallel-tests --enable-netcdf-4 --disable-shared --disable-fsync --disable-cdmremote --disable-dap --disable-doxygen --disable-v2
 echo Netcdf ............BUILD
 make
 echo Netcdf ............INSTALL
