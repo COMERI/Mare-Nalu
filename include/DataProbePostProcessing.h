@@ -17,17 +17,13 @@
 
 // stk_mesh/base/fem
 #include <stk_mesh/base/Selector.hpp>
+#include <stk_mesh/base/Entity.hpp>
 
 // stk forwards
 namespace stk {
   namespace mesh {
-    class BulkData;
-    class FieldBase;
     class MetaData;
     class Part;
-    //class Selector; ? why is this?
-    struct Entity;
-    typedef std::vector< Part * > PartVector;
   }
 }
 
