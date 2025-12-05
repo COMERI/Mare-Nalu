@@ -170,7 +170,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "DEBUG")
 endif()
 
 add_executable(${utest_ex_name} unit_tests.C ${UNIT_TESTS_SOURCES})
-target_link_libraries(${utest_ex_name} mare-nalu)
+target_link_libraries(${utest_ex_name} mare-nalu gtest gtest_main)
 target_include_directories(${utest_ex_name} PUBLIC "${CMAKE_SOURCE_DIR}/unit_tests")
 
 set(mare_nalu_ex_catalyst_name "mareNaluXCatalyst")
