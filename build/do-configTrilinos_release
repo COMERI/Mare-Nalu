@@ -1,20 +1,21 @@
 # The base directory where mpi is located.  
 # From here you should be able to find include/mpi.h bin/mpicxx, bin/mpiexec, etc.
 mpi_base_dir=/path_to_mpi/mpi/openmpi/4.1.2
-nalu_install_dir=/path_to_install/install/gcc10.3.0
+nalu_install_dir=/path_to_install/install/gcc12.3.0
 
 # Note: Don't forget to set your LD_LIBRARY_PATH to $mpi_base_dir/lib
 #       You may also need to add to LD_LIBRARY_PATH the lib directory for the compiler
 #       used to create the mpi executables.
 
 # TPLS needed by trilinos, possibly provided by HomeBrew on a Mac
-netcdf_install_dir=$nalu_install_dir/netcdf/4.8.1
-hdf_install_dir=$nalu_install_dir/hdf5/1.10.10
-pnetcdf_install_dir=$nalu_install_dir/pnetcdf/1.12.2
+netcdf_install_dir=$nalu_install_dir/netcdf/4.9.3
+hdf_install_dir=$nalu_install_dir/hdf5/1.13.0
+pnetcdf_install_dir=$nalu_install_dir/pnetcdf/1.13.0
+gtest_install_dir=/usr/local/lib/
 
 # libraries for blas and lapack
-blas_install_lib=/usr/lib64/libblas.so.3
-lapack_install_lib=/usr/lib64/liblapack.so.3
+blas_install_lib=/usr/lib/x86_64-linux-gnu/libblas.so.3
+lapack_install_lib=/usr/lib/x86_64-linux-gnu/liblapack.so.3
 
 # Where trilinos will be installed
 trilinos_install_dir=$nalu_install_dir/Trilinos_stable_release
@@ -84,6 +85,7 @@ cmake \
 -DHDF5_ROOT:PATH=${hdf_install_dir} \
 -DHDF5_NO_SYSTEM_PATHS=ON \
 -DPNetCDF_ROOT:PATH=${pnetcdf_install_dir} \
+-DGTest_DIR:PATH=${gtest_install_dir} \
 -DTPL_BLAS_LIBRARIES=${blas_install_lib} \
 -DTPL_LAPACK_LIBRARIES=${lapack_install_lib} \
 $EXTRA_ARGS \
