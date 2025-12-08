@@ -13,7 +13,7 @@ rm -rf build
 mkdir build
 cd build
 echo YAML ............CONFIG
-cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$nalu_install_dir/yaml/0.6.2 ..
+cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$nalu_install_dir/yaml/0.6.2 .. -DYAML_CPP_BUILD_TESTS=OFF
 echo YAML ............BUILD
 make -j 32
 echo YAML ............INSTALL
@@ -75,4 +75,17 @@ echo Netcdf ............BUILD
 make
 echo Netcdf ............INSTALL
 make install
+
+cd $BASE_DIR
+echo googletest ........CLEAN
+git clone https://github.com/google/googletest.git
+cd googletest
+git checkout v1.16.x
+mkdir build
+cd build
+echo googletest ..... optional OSX commands included
+cmake -DCMAKE_INSTALL_PREFIX=$nalu_install_dir/googletest/1.16.0 .. -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang
+make
+make install
+
 

@@ -1,6 +1,7 @@
 nalu_install_dir=/home/nalu_user/gitHubWork/scratch_build/install/gcc8.3.0/
 trilinos_install_dir=$nalu_install_dir/Trilinos_stable_release_test
 yaml_install_dir=$nalu_install_dir/yaml/0.6.2
+gtest_install_dir=$nalu_install_dir/googletest/1.16.0
 
 EXTRA_ARGS=$@
 
@@ -12,6 +13,7 @@ rm -f CMakeCache.txt
 cmake \
   -DTrilinos_DIR:PATH=$trilinos_install_dir \
   -DYAML_DIR:PATH=$yaml_install_dir \
+  -GTest_ROOT="$gtest_install_dir" \
   -DENABLE_INSTALL:BOOL=OFF \
   -DCMAKE_BUILD_TYPE=RELEASE \
   -DCMAKE_CXX_FLAGS:STRING="-Wall" \
