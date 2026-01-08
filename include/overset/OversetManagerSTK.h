@@ -23,6 +23,7 @@
 // STL
 #include <vector>
 #include <map>
+#include <cfloat>
 
 // field types
 typedef stk::mesh::Field<double>  ScalarFieldType;
