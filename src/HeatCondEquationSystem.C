@@ -73,6 +73,7 @@
 #include "user_functions/SteadyThermal3dContactAuxFunction.h"
 #include "user_functions/SteadyThermalContact3DSrcNodeSuppAlg.h"
 #include "user_functions/SteadyThermal3dContactSrcElemKernel.h"
+#include "user_functions/TableAuxFunction.h"
 
 #include "overset/UpdateOversetFringeAlgorithmDriver.h"
 
@@ -559,7 +560,6 @@ HeatCondEquationSystem::register_wall_bc(
       }
       else {
         throw std::runtime_error("Only steady_2d/3d_thermal user functions supported");
-
       }
     }
     
@@ -771,18 +771,21 @@ HeatCondEquationSystem::register_wall_bc(
     }
   }
   else if ( userData.htcSpec_ || userData.refTempSpec_ || userData.robinParameterSpec_ ) {
-    
+
     const AlgorithmType algTypeCHT = WALL_CHT;
 
     // If the user specified a Robin parameter, this is a Robin-type CHT; otherwise, it's convection
     bool isRobinCHT = userData.robinParameterSpec_;
     bool isConvectionCHT = !isRobinCHT;
 
+    // type of tRef specification
+    std::string tRefName = "reference_temperature";
+    UserDataType tRefDataType = get_bc_data_type(userData, tRefName);
+
     // first make sure all appropriate variables were specified
-    if (isConvectionCHT)
-    {
-      if ( !userData.refTempSpec_)
-        throw std::runtime_error("Sorry, h was specified while Tref was not");
+    if (isConvectionCHT) {
+      if ( !userData.refTempSpec_ && !(FUNCTION_UD == tRefDataType) )
+	throw std::runtime_error("Sorry, h was specified while Tref was not");
       if ( !userData.htcSpec_)
         throw std::runtime_error("Sorry, Tref was specified while h was not");
     }
@@ -850,18 +853,44 @@ HeatCondEquationSystem::register_wall_bc(
                                                               normalHeatFluxField,
                                                               qnAuxFunc,
                                                               stk::topology::NODE_RANK);
-  
-    ReferenceTemperature tRef = userData.referenceTemperature_;
-    std::vector<double> tRefUserSpec(1);
-    tRefUserSpec[0] = tRef.referenceTemperature_;
-    AuxFunction *tRefAuxFunc = new ConstantAuxFunction(0, 1, tRefUserSpec);
-    AuxFunctionAlgorithm *tRefAuxAlg = new AuxFunctionAlgorithm(realm_, 
-                                                                part,
-                                                                tRefField, 
-                                                                tRefAuxFunc,
-                                                                stk::topology::NODE_RANK);
 
+    // allow for user functions for Tref
+    bool functionDataForTref = false;
+    AuxFunctionAlgorithm *tRefAuxAlg = NULL;
+    if ( userData.refTempSpec_ ||  FUNCTION_UD == tRefDataType ) {
 
+      AuxFunction *tRefAuxFunc = NULL;
+      if ( CONSTANT_UD == tRefDataType ) {
+
+	ReferenceTemperature tRef = userData.referenceTemperature_;
+	std::vector<double> tRefUserSpec(1);
+	tRefUserSpec[0] = tRef.referenceTemperature_;
+	tRefAuxFunc = new ConstantAuxFunction(0, 1, tRefUserSpec);
+      }
+      else {
+	// extract the name
+	std::string fcnName = get_bc_function_name(userData, tRefName);
+
+	// switch on the name found...
+	if ( fcnName == "table" ) {
+	  functionDataForTref = true;
+	  std::vector<double> theParams = get_bc_function_params(userData, tRefName);
+	  tRefAuxFunc = new TableAuxFunction(0,1,theParams);
+	}
+	else {
+	  throw std::runtime_error("Only table user functions supported for reference_temperature");
+	}
+      }
+
+      tRefAuxAlg
+	= new AuxFunctionAlgorithm(realm_, 
+				   part,
+				   tRefField, 
+				   tRefAuxFunc,
+				   stk::topology::NODE_RANK);   
+    }
+
+    
     // decide where to put population of data
     // Normal heat flux, reference temperature, and coupling parameter
     // come from a transfer if this is an interface, so in that case
@@ -869,6 +898,9 @@ HeatCondEquationSystem::register_wall_bc(
     if ( userData.isInterface_ || userData.externalData_ ) {
       // xfer will handle population; only need to populate the initial value
       realm_.initCondAlg_.push_back(tRefAuxAlg);
+      // allow for mix/match transient data
+      if ( functionDataForTref )
+	bcDataAlg_.push_back(tRefAuxAlg);
       if (isRobinCHT) 
       {
         realm_.initCondAlg_.push_back(alphaAuxAlg);

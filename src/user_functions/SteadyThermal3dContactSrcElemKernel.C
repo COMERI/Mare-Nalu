@@ -59,7 +59,7 @@ SteadyThermal3dContactSrcElemKernel<AlgTraits>::execute(
   ScratchViews<DoubleType>& scratchViews)
 {
   // Forcing nDim = 3 to avoid compiler warnings 
-  DoubleType w_scvCoords[3];
+  DoubleType w_scvCoords[3] = {0.0,0.0,0.0};
 
   SharedMemView<DoubleType**>& v_coordinates = scratchViews.get_scratch_view_2D(*coordinates_);
   SharedMemView<DoubleType*>& v_scv_volume = scratchViews.get_me_views(CURRENT_COORDINATES).scv_volume;
