@@ -15,6 +15,7 @@
 #include "user_functions/LinearRampMeshDisplacementAuxFunction.h"
 #include "user_functions/SinMeshDisplacementAuxFunction.h"
 #include "user_functions/Table2dAuxFunction.h"
+#include "user_functions/CircularDisplacementAuxFunction.h"
 
 #include "AlgorithmDriver.h"
 #include "AssembleNodalGradUAlgorithmDriver.h"
@@ -305,6 +306,9 @@ MeshDisplacementEquationSystem::register_wall_bc(
   std::string displacementName = "mesh_displacement";
   std::string pressureName = "pressure";
 
+  // does a function need to parallel communicate?
+  bool parallelCommunicate = false;
+  
   if ( bc_data_specified(userData, displacementName) ) {
 
     // register boundary data; mesh_displacement_bc
@@ -340,17 +344,19 @@ MeshDisplacementEquationSystem::register_wall_bc(
         std::vector<std::string> theStringParams  = get_bc_function_string_params(userData, displacementName);
         theAuxFunc = new Table2dAuxFunction(0, nDim, theParams, theStringParams);
       }
+      else if ( fcnName == "circular") {
+        theAuxFunc = new CircularDisplacementAuxFunction(0,nDim, theParams);
+	parallelCommunicate = true;
+      }
       else {
-        throw std::runtime_error("Only linear ramp user functions supported");
+        throw std::runtime_error("Only linear, sinusoidal, table2d and circular user functions supported");
       }
     }
 
     // proceed with aux function and dirichlet setup
-
     AuxFunctionAlgorithm *auxAlg
       = new AuxFunctionAlgorithm(realm_, part,
-          theBcField, theAuxFunc,
-          stk::topology::NODE_RANK);
+          theBcField, theAuxFunc, stk::topology::NODE_RANK, parallelCommunicate);
 
     // check to see if this is an FSI interface to determine how we handle mesh_displacement population
     if ( userData.isFsiInterface_ ) {
