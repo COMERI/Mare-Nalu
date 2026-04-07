@@ -42,8 +42,17 @@ using DeviceTeam = DeviceTeamPolicy::member_type;
 inline DeviceTeamPolicy get_team_policy(const size_t sz, const size_t bytes_per_team,
     const size_t bytes_per_thread)
 {
+  size_t requested_size = bytes_per_thread;
+  if ( bytes_per_team > 0 )
+    requested_size *= bytes_per_team;
+  
   DeviceTeamPolicy policy(sz, Kokkos::AUTO);
-  return policy.set_scratch_size(0, Kokkos::PerTeam(bytes_per_team), Kokkos::PerThread(bytes_per_thread));
+  if ( requested_size < policy.scratch_size_max(/*level=*/(int)0) )
+    return policy.set_scratch_size(0, Kokkos::PerTeam(bytes_per_team), Kokkos::PerThread(bytes_per_thread));
+  else if ( requested_size < policy.scratch_size_max(/*level=*/(int)1) )
+    return policy.set_scratch_size(1, Kokkos::PerTeam(bytes_per_team), Kokkos::PerThread(bytes_per_thread));
+  else
+    throw std::runtime_error("KokkosInterface Error: Requested scratch size exceeds both level-0 and level-1 memory");
 }
 
 inline
