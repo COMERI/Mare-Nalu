@@ -21,7 +21,7 @@ class CircularHelper
   CircularHelper(
     const double height, const double sigmaNorm, const double sigmaTan,
     const double normXhat, const double normYhat, const double tanXhat, const double tanYhat,
-    const double centerX, const double centerY);
+    const double centerX, const double centerY, const double scaling);
   virtual ~CircularHelper() {};
 
   double increment(const double cX, const double cY);
@@ -38,6 +38,7 @@ class CircularHelper
   const double tanYhat_;
   const double centerX_;
   const double centerY_;
+  const double scaling_;
 };
 
 class CircularDisplacementAuxFunction : public AuxFunction
@@ -74,6 +75,11 @@ private:
   double diamInner_;
   double sigmaNormInner_;
   double sigmaTanInner_;
+  int totalInnerInner_;
+  double heightInnerInner_;
+  double diamInnerInner_;
+  double sigmaNormInnerInner_;
+  double sigmaTanInnerInner_;
   double originX_;
   double originY_;
   double timeOffset_;
