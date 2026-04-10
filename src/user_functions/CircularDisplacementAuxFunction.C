@@ -35,6 +35,11 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   diamInner_(60.0),
   sigmaNormInner_(3.0),
   sigmaTanInner_(2.0),
+  totalInnerInner_(23),
+  heightInnerInner_(3.0),
+  diamInnerInner_(60.0),
+  sigmaNormInnerInner_(3.0),
+  sigmaTanInnerInner_(2.0),
   originX_(0.0),
   originY_(0.0),
   timeOffset_(0.0),
@@ -47,7 +52,7 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
 
   // parse the parameters if provided
   if ( theParams.size() > 0 ) {
-
+    
     // allow for linear ramp up in time
     timeBlending_ = theParams[0];
     
@@ -65,17 +70,25 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
     sigmaNormInner_ = theParams[9];
     sigmaTanInner_ = theParams[10];
 
+    // inner, inner....
+    totalInnerInner_ = theParams[11];
+    heightInnerInner_ = theParams[12];
+    diamInnerInner_ = theParams[13];
+    sigmaNormInnerInner_ = theParams[14];
+    sigmaTanInnerInner_ = theParams[15];
+
     // origin of structure
-    originX_ = theParams[11];
-    originY_ = theParams[12];
+    originX_ = theParams[16];
+    originY_ = theParams[17];
 
     // offset
-    timeOffset_ = theParams[13];
+    timeOffset_ = theParams[18];
   }
 
   // define radius
   const double radOuter = diamOuter_*0.5;
   const double radInner = diamInner_*0.5;
+  const double radInnerInner = diamInnerInner_*0.5;
   
   //=========================================
   // create the vector of outer structures
@@ -104,7 +117,7 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
     // create the helper
     CircularHelper *cHelp = new CircularHelper(heightOuter_, sigmaNormOuter_, sigmaTanOuter_,
 					       normXhat, normYhat, tanXhat, tanYhat,
-					       centerX, centerY);
+					       centerX, centerY, 1.0);
     cHelpVec_.push_back(cHelp);
     
     // incremenet theta
@@ -138,11 +151,45 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
     // create the helper
     CircularHelper *cHelp = new CircularHelper(heightInner_, sigmaNormInner_, sigmaTanInner_,
 					       normXhat, normYhat, tanXhat, tanYhat,
-					       centerX, centerY);
+					       centerX, centerY, 1.0);
     cHelpVec_.push_back(cHelp);
     
     // incremenet theta
     thetaInner += dThetaInner;    
+  }
+
+  //=========================================
+  // create the vector of inner (inner) structures
+  //=========================================
+  const double dThetaInnerInner = 2.0*pi_/(double)totalInnerInner_;
+  double thetaInnerInner = 0.0;
+  for ( int k = 0; k < totalInnerInner_; ++k ) {
+    
+    // on the unit circle, diameter 1.0
+    double cX = std::cos(thetaInnerInner);
+    double cY = std::sin(thetaInnerInner);
+    double mag = std::sqrt(cX*cX + cY*cY);
+    
+    // unit normal
+    double normXhat = cX/mag;
+    double normYhat = cY/mag;
+    
+    // now rotate 90 degrees for a tangential unit vector 
+    double tanXhat = Rxx_*normXhat + Rxy_*normYhat;
+    double tanYhat = Ryx_*normXhat + Ryy_*normYhat;
+    
+    // center on the translated system
+    double centerX = originX_ + cX*radInnerInner;
+    double centerY = originY_ + cY*radInnerInner;
+    
+    // create the helper
+    CircularHelper *cHelp = new CircularHelper(heightInnerInner_, sigmaNormInnerInner_, sigmaTanInnerInner_,
+					       normXhat, normYhat, tanXhat, tanYhat,
+					       centerX, centerY, -1.0);
+    cHelpVec_.push_back(cHelp);
+    
+    // incremenet theta
+    thetaInnerInner += dThetaInnerInner;    
   }
 
   // provide review
@@ -157,6 +204,11 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   NaluEnv::self().naluOutputP0() << "diamInner_:           " << diamInner_ << std::endl;
   NaluEnv::self().naluOutputP0() << "sigmaNormInner_:      " << sigmaNormInner_ << std::endl;
   NaluEnv::self().naluOutputP0() << "sigmaTanInner_:       " << sigmaTanInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "totalInnerInner_:     " << totalInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "heightInnerInner_:    " << heightInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "diamInnerInner_:      " << diamInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaNormInnerInner_: " << sigmaNormInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaTanInnerInner_:  " << sigmaTanInnerInner_ << std::endl;
   NaluEnv::self().naluOutputP0() << "originX_:             " << originX_ << std::endl;
   NaluEnv::self().naluOutputP0() << "originY_:             " << originY_ << std::endl;
   NaluEnv::self().naluOutputP0() << "timeOffset_:          " << timeOffset_ << std::endl;
@@ -187,18 +239,11 @@ CircularDisplacementAuxFunction::do_evaluate(
     const double cX = coords[0];
     const double cY = coords[1];
 
-    // radius
-    const double R = std::sqrt((cX-originX_)*(cX-originX_) + (cY-originY_)*(cY-originY_));
-    
-    // loop over all circular structures defined and increment z
+    // loop over all circular structures defined and increment z; increment has scaling (+/-)
     double zSum = 0.0;
     for ( size_t k = 0; k < cHelpVec_.size(); ++k ) {
       zSum += cHelpVec_[k]->increment(cX, cY);
     }
-
-    // elevate the inner by one cm (probably need smoothing)
-    if ( R < 0.9*30.0 )
-      zSum += 1.0*0.0;
     
     fieldPtr[2] = zSum*fac;
     fieldPtr += fieldSize;
@@ -209,7 +254,7 @@ CircularDisplacementAuxFunction::do_evaluate(
 CircularHelper::CircularHelper(
   const double height, const double sigmaNorm, const double sigmaTan,
   const double normXhat, const double normYhat, const double tanXhat, const double tanYhat,
-  const double centerX, const double centerY) :
+  const double centerX, const double centerY, const double scaling) :
   height_(height),
   sigmaSqNorm_(sigmaNorm*sigmaNorm),
   sigmaSqTan_(sigmaTan*sigmaTan),
@@ -218,7 +263,8 @@ CircularHelper::CircularHelper(
   tanXhat_(tanXhat),
   tanYhat_(tanYhat),
   centerX_(centerX),
-  centerY_(centerY)
+  centerY_(centerY),
+  scaling_(scaling)
 {
   // nothing else
 }
@@ -228,7 +274,7 @@ CircularHelper::increment(const double cX, const double cY)
 {
   const double pNorm = normXhat_*(cX - centerX_) + normYhat_*(cY - centerY_);
   const double pTan = tanXhat_*(cX - centerX_) + tanYhat_*(cY - centerY_);
-  const double dz = height_*std::exp(-(pNorm*pNorm/(2.0*sigmaSqNorm_) + pTan*pTan/(2.0*sigmaSqTan_)));
+  const double dz = scaling_*height_*std::exp(-(pNorm*pNorm/(2.0*sigmaSqNorm_) + pTan*pTan/(2.0*sigmaSqTan_)));
   
   return dz;
 }
