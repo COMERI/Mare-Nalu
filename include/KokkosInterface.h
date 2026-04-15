@@ -42,7 +42,7 @@ using DeviceTeam = DeviceTeamPolicy::member_type;
 inline DeviceTeamPolicy get_team_policy(const size_t sz, const size_t bytes_per_team,
     const size_t bytes_per_thread)
 {
-  size_t requested_size = bytes_per_thread;
+  int requested_size = bytes_per_thread;
   if ( bytes_per_team > 0 )
     requested_size *= bytes_per_team;
   

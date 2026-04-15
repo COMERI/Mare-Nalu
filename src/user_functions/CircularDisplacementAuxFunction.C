@@ -30,16 +30,19 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   diamOuter_(100.0),
   sigmaNormOuter_(5.0),
   sigmaTanOuter_(3.0),
+  declinationOuter_(0.0),
   totalInner_(23),
   heightInner_(3.0),
   diamInner_(60.0),
   sigmaNormInner_(3.0),
   sigmaTanInner_(2.0),
+  declinationInner_(0.0),
   totalInnerInner_(23),
   heightInnerInner_(3.0),
   diamInnerInner_(60.0),
   sigmaNormInnerInner_(3.0),
   sigmaTanInnerInner_(2.0),
+  declinationInnerInner_(0.0),  
   originX_(0.0),
   originY_(0.0),
   timeOffset_(0.0),
@@ -50,40 +53,47 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   Ryy_(std::cos(pi_/2.0))
 {
 
-  // parse the parameters if provided
-  if ( theParams.size() > 0 ) {
-    
-    // allow for linear ramp up in time
-    timeBlending_ = theParams[0];
-    
-    // outer....
-    totalOuter_ = theParams[1];
-    heightOuter_ = theParams[2];
-    diamOuter_ = theParams[3];
-    sigmaNormOuter_ = theParams[4];
-    sigmaTanOuter_ = theParams[5];
-    
-    // inner....
-    totalInner_ = theParams[6];
-    heightInner_ = theParams[7];
-    diamInner_ = theParams[8];
-    sigmaNormInner_ = theParams[9];
-    sigmaTanInner_ = theParams[10];
-
-    // inner, inner....
-    totalInnerInner_ = theParams[11];
-    heightInnerInner_ = theParams[12];
-    diamInnerInner_ = theParams[13];
-    sigmaNormInnerInner_ = theParams[14];
-    sigmaTanInnerInner_ = theParams[15];
-
-    // origin of structure
-    originX_ = theParams[16];
-    originY_ = theParams[17];
-
-    // offset
-    timeOffset_ = theParams[18];
+  // parse the required parameters
+  if ( theParams.size() != 22 ) {
+    NaluEnv::self().naluOutputP0() << "Error: circular user function requires 22 parameters" << std::endl;
+    throw std::runtime_error("CircularDisplacementAuxFunction::Error");
   }
+
+  // allow for linear ramp up in time
+  timeBlending_ = theParams[0];
+  
+  // outer....
+  totalOuter_ = theParams[1];
+  heightOuter_ = theParams[2];
+  diamOuter_ = theParams[3];
+  sigmaNormOuter_ = theParams[4];
+  sigmaTanOuter_ = theParams[5];
+  
+  // inner....
+  totalInner_ = theParams[6];
+  heightInner_ = theParams[7];
+  diamInner_ = theParams[8];
+  sigmaNormInner_ = theParams[9];
+  sigmaTanInner_ = theParams[10];
+  
+  // inner, inner....
+  totalInnerInner_ = theParams[11];
+  heightInnerInner_ = theParams[12];
+  diamInnerInner_ = theParams[13];
+  sigmaNormInnerInner_ = theParams[14];
+  sigmaTanInnerInner_ = theParams[15];
+  
+  // origin of structure
+  originX_ = theParams[16];
+  originY_ = theParams[17];
+  
+  // offset
+  timeOffset_ = theParams[18];
+  
+  // declinations (specified in degree)
+  declinationOuter_ = theParams[19];
+  declinationInner_ = theParams[20];
+  declinationInnerInner_ = theParams[21];
 
   // define radius
   const double radOuter = diamOuter_*0.5;
@@ -94,7 +104,7 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   // create the vector of outer structures
   //=========================================
   const double dThetaOuter = 2.0*pi_/(double)totalOuter_;
-  double thetaOuter = 0.0;
+  double thetaOuter = declinationOuter_*pi_/180.0;
   for ( int k = 0; k < totalOuter_; ++k ) {
     
     // on the unit circle, diameter 1.0
@@ -128,7 +138,7 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   // create the vector of inner structures
   //=========================================
   const double dThetaInner = 2.0*pi_/(double)totalInner_;
-  double thetaInner = 0.0;
+  double thetaInner = declinationInner_*pi_/180.0;
   for ( int k = 0; k < totalInner_; ++k ) {
     
     // on the unit circle, diameter 1.0
@@ -162,7 +172,7 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   // create the vector of inner (inner) structures
   //=========================================
   const double dThetaInnerInner = 2.0*pi_/(double)totalInnerInner_;
-  double thetaInnerInner = 0.0;
+  double thetaInnerInner = declinationInnerInner_*pi_/180.0;
   for ( int k = 0; k < totalInnerInner_; ++k ) {
     
     // on the unit circle, diameter 1.0
@@ -193,25 +203,28 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   }
 
   // provide review
-  NaluEnv::self().naluOutputP0() << "timeBlending_:        " << timeBlending_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "totalOuter_:          " << totalOuter_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "heightOuter_:         " << heightOuter_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "diamOuter_:           " << diamOuter_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaNormOuter_:      " << sigmaNormOuter_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaTanOuter_:       " << sigmaTanOuter_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "totalInner_:          " << totalInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "heightInner_:         " << heightInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "diamInner_:           " << diamInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaNormInner_:      " << sigmaNormInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaTanInner_:       " << sigmaTanInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "totalInnerInner_:     " << totalInnerInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "heightInnerInner_:    " << heightInnerInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "diamInnerInner_:      " << diamInnerInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaNormInnerInner_: " << sigmaNormInnerInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "sigmaTanInnerInner_:  " << sigmaTanInnerInner_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "originX_:             " << originX_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "originY_:             " << originY_ << std::endl;
-  NaluEnv::self().naluOutputP0() << "timeOffset_:          " << timeOffset_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "timeBlending_:          " << timeBlending_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "totalOuter_:            " << totalOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "heightOuter_:           " << heightOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "diamOuter_:             " << diamOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaNormOuter_:        " << sigmaNormOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaTanOuter_:         " << sigmaTanOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "declinationOuter_:      " << declinationOuter_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "totalInner_:            " << totalInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "heightInner_:           " << heightInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "diamInner_:             " << diamInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaNormInner_:        " << sigmaNormInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaTanInner_:         " << sigmaTanInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "declinationInner_:      " << declinationInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "totalInnerInner_:       " << totalInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "heightInnerInner_:      " << heightInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "diamInnerInner_:        " << diamInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaNormInnerInner_:   " << sigmaNormInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "sigmaTanInnerInner_:    " << sigmaTanInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "declinationInnerInner_: " << declinationInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "originX_:               " << originX_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "originY_:               " << originY_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "timeOffset_:            " << timeOffset_ << std::endl;
 }
 
 CircularDisplacementAuxFunction::~CircularDisplacementAuxFunction()
