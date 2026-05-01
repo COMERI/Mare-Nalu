@@ -8,6 +8,7 @@
 
 #include <user_functions/CircularDisplacementAuxFunction.h>
 #include <algorithm>
+#include <PecletFunction.h>
 
 #include <NaluEnv.h>
 
@@ -43,6 +44,9 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   sigmaNormInnerInner_(3.0),
   sigmaTanInnerInner_(2.0),
   declinationInnerInner_(0.0),  
+  icElevation_(0.0),
+  icWidth_(0.0),
+  icTrans_(0.0),
   originX_(0.0),
   originY_(0.0),
   timeOffset_(0.0),
@@ -54,8 +58,8 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
 {
 
   // parse the required parameters
-  if ( theParams.size() != 22 ) {
-    NaluEnv::self().naluOutputP0() << "Error: circular user function requires 22 parameters" << std::endl;
+  if ( theParams.size() != 25 ) {
+    NaluEnv::self().naluOutputP0() << "Error: circular user function requires 25 parameters" << std::endl;
     throw std::runtime_error("CircularDisplacementAuxFunction::Error");
   }
 
@@ -95,6 +99,11 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   declinationInner_ = theParams[20];
   declinationInnerInner_ = theParams[21];
 
+  // initial elevation
+  icElevation_ = theParams[22];
+  icWidth_ = theParams[23];
+  icTrans_ = theParams[24];
+  
   // define radius
   const double radOuter = diamOuter_*0.5;
   const double radInner = diamInner_*0.5;
@@ -222,6 +231,9 @@ CircularDisplacementAuxFunction::CircularDisplacementAuxFunction(
   NaluEnv::self().naluOutputP0() << "sigmaNormInnerInner_:   " << sigmaNormInnerInner_ << std::endl;
   NaluEnv::self().naluOutputP0() << "sigmaTanInnerInner_:    " << sigmaTanInnerInner_ << std::endl;
   NaluEnv::self().naluOutputP0() << "declinationInnerInner_: " << declinationInnerInner_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "icElevation_:           " << icElevation_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "icWidth_:               " << icWidth_ << std::endl;
+  NaluEnv::self().naluOutputP0() << "icTrans_:               " << icTrans_ << std::endl;
   NaluEnv::self().naluOutputP0() << "originX_:               " << originX_ << std::endl;
   NaluEnv::self().naluOutputP0() << "originY_:               " << originY_ << std::endl;
   NaluEnv::self().naluOutputP0() << "timeOffset_:            " << timeOffset_ << std::endl;
@@ -246,14 +258,19 @@ CircularDisplacementAuxFunction::do_evaluate(
   const unsigned /*endPos*/) const
 {
   const double fac = std::min((time-timeOffset_)/timeBlending_, 1.0);
-  
+  TanhFunction<double> tanhFunction(icTrans_, icWidth_);
+      
   for(unsigned p=0; p < numPoints; ++p) {
     
     const double cX = coords[0];
     const double cY = coords[1];
 
+    // initial elevation; use a tanh?
+    const double R = std::sqrt((cX-originX_)*(cX-originX_) + (cY-originY_)*(cY-originY_));
+    const double icBlend = 1.0-tanhFunction.execute(R);
+
     // loop over all circular structures defined and increment z; increment has scaling (+/-)
-    double zSum = 0.0;
+    double zSum = icElevation_*icBlend;
     for ( size_t k = 0; k < cHelpVec_.size(); ++k ) {
       zSum += cHelpVec_[k]->increment(cX, cY);
     }

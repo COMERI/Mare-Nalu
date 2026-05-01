@@ -83,6 +83,9 @@ private:
   double sigmaNormInnerInner_;
   double sigmaTanInnerInner_;
   double declinationInnerInner_;
+  double icElevation_;
+  double icWidth_;
+  double icTrans_;
   double originX_;
   double originY_;
   double timeOffset_;
