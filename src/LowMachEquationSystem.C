@@ -156,6 +156,7 @@
 #include "user_functions/WindEnergyTaylorVortexPressureAuxFunction.h"
 
 #include "user_functions/MeshMotionAuxFunction.h"
+#include "user_functions/RotatingWallAuxFunction.h"
 
 #include "user_functions/SteadyTaylorVortexVelocityAuxFunction.h"
 #include "user_functions/SteadyTaylorVortexPressureAuxFunction.h"
@@ -1801,11 +1802,15 @@ MomentumEquationSystem::register_wall_bc(
       }
       else if ( fcnName == "wind_energy" ) {
         std::vector<std::string> theStringParams  = get_bc_function_string_params(userData, velocityName);
-     	theAuxFunc = new WindEnergyAuxFunction(0,nDim, theStringParams, realm_);
+     	theAuxFunc = new WindEnergyAuxFunction(0, nDim, theStringParams, realm_);
       }
       else if ( fcnName == "mesh_motion" ) {
         std::vector<std::string> theStringParams  = get_bc_function_string_params(userData, velocityName);
-        theAuxFunc = new MeshMotionAuxFunction(0,nDim, theStringParams, realm_);
+        theAuxFunc = new MeshMotionAuxFunction(0, nDim, theStringParams, realm_);
+      }
+      else if ( fcnName == "rotating_wall" ) {
+        std::vector<double> theParams  = get_bc_function_params(userData, velocityName);
+        theAuxFunc = new RotatingWallAuxFunction(0, nDim, theParams, realm_);
       }
       else {
         throw std::runtime_error("Only wind_energy, mesh_motion, and tornado user functions supported");
