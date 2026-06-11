@@ -15,6 +15,7 @@
 
 namespace stk{
 struct topology;
+
 namespace mesh{
 class FieldBase;
 class Part;
@@ -296,10 +297,6 @@ public:
 
   /// List of tasks to be performed after each EquationSystem::solve_and_update
   std::vector<AlgorithmDriver*> postIterAlgDriver_;
-
-  // owner equation system
-  /*EquationSystem *ownerEqs_;*/
-
 };
 
 //--------------------------------------------------------------------------

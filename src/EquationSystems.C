@@ -55,7 +55,8 @@ namespace nalu{
 //--------------------------------------------------------------------------
 EquationSystems::EquationSystems(
   Realm &realm)
-  : realm_(realm)
+  : realm_(realm),
+    wallFunctionGhosting_(nullptr)
 {
   // does nothing
 }

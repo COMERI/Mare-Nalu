@@ -623,7 +623,7 @@ LowMachEquationSystem::register_surface_pp_algorithm(
     SurfaceForceAndMomentWallFunctionProjectedAlgorithm *ppAlg
       = new SurfaceForceAndMomentWallFunctionProjectedAlgorithm(
           realm_, partVector, theData.outputFileName_,
-          theData.parameters_, realm_.realmUsesEdges_, assembledArea, momentumEqSys_->pointInfoMap_, momentumEqSys_->wallFunctionGhosting_);
+          theData.parameters_, realm_.realmUsesEdges_, assembledArea, equationSystems_.pointInfoMap_, equationSystems_.wallFunctionGhosting_);
     surfaceForceAndMomentAlgDriver_->algVec_.push_back(ppAlg);
     savedFrequency = surfaceForceAndMomentAlgDriver_->get_frequency();
   }
@@ -987,7 +987,6 @@ MomentumEquationSystem::MomentumEquationSystem(
     tviscAlgDriver_(new AlgorithmDriver(realm_)),
     cflReyAlgDriver_(new AlgorithmDriver(realm_)),
     wallFunctionParamsAlgDriver_(nullptr),
-    wallFunctionGhosting_(nullptr),
     projectedNodalGradEqs_(nullptr),
     firstPNGResidual_(0.0)
 {
@@ -1024,7 +1023,7 @@ MomentumEquationSystem::~MomentumEquationSystem()
 
   // delete pointInfo objects created
   for( std::map<std::string, std::vector<std::vector<PointInfo*> > >::iterator im 
-         = pointInfoMap_.begin(); im!=pointInfoMap_.end(); ++im ) {
+         = equationSystems_.pointInfoMap_.begin(); im!=equationSystems_.pointInfoMap_.end(); ++im ) {
     std::vector<std::vector<PointInfo*> > &theVecVec = (*im).second;
     for( std::vector<std::vector<PointInfo*> >::iterator ii 
            = theVecVec.begin(); ii!=theVecVec.end(); ++ii ) {
@@ -1911,7 +1910,7 @@ MomentumEquationSystem::register_wall_bc(
         ComputeWallFrictionVelocityProjectedAlgorithm *theUtauAlg =
           new ComputeWallFrictionVelocityProjectedAlgorithm(realm_, part, projectedDistance, odeFac, 
                                                             realm_.realmUsesEdges_, 
-                                                            pointInfoMap_, wallFunctionGhosting_);
+                                                            equationSystems_.pointInfoMap_, equationSystems_.wallFunctionGhosting_);
         wallFunctionParamsAlgDriver_->algMap_[wfAlgProjectedType] = theUtauAlg;
       }
       else {
@@ -1966,7 +1965,7 @@ MomentumEquationSystem::register_wall_bc(
           solverAlgDriver_->solverAlgMap_.find(wfAlgProjectedType);
         if ( it_wf == solverAlgDriver_->solverAlgMap_.end() ) {
           AssembleMomentumElemWallFunctionProjectedSolverAlgorithm *theAlg 
-            = new AssembleMomentumElemWallFunctionProjectedSolverAlgorithm(realm_, part, this, realm_.realmUsesEdges_, pointInfoMap_, wallFunctionGhosting_);
+            = new AssembleMomentumElemWallFunctionProjectedSolverAlgorithm(realm_, part, this, realm_.realmUsesEdges_, equationSystems_.pointInfoMap_, equationSystems_.wallFunctionGhosting_);
           solverAlgDriver_->solverAlgMap_[wfAlgProjectedType] = theAlg;
         }
         else {

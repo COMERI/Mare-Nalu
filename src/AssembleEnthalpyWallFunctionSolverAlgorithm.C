@@ -32,7 +32,7 @@ namespace nalu{
 //==========================================================================
 // Class Definition
 //==========================================================================
-// AssembleEnthalpyWallFunctionSolverAlgorithm - elem wall function
+// AssembleEnthalpyWallFunctionSolverAlgorithm - elem/edge LOW
 //==========================================================================
 //--------------------------------------------------------------------------
 //-------- constructor -----------------------------------------------------
@@ -133,9 +133,12 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
     connected_nodes.resize(nodesPerFace);
 
     // algorithm related; element
+    ws_temperature.resize(nodesPerFace);
+    ws_wall_temperature.resize(nodesPerFace);
     ws_density.resize(nodesPerFace);
     ws_viscosity.resize(nodesPerFace);
     ws_specific_heat.resize(nodesPerFace);
+    ws_thermal_cond.resize(nodesPerFace);
     ws_shape_function.resize(numScsBip*nodesPerFace);
 
     // pointers
@@ -175,7 +178,7 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
       for ( int ni = 0; ni < nodesPerFace; ++ni ) {
         stk::mesh::Entity node = face_node_rels[ni];
         connected_nodes[ni] = node;
-
+        
         // gather scalars
         p_temperature[ni]   = *stk::mesh::field_data(*temperature_, node);
         p_wall_temperature[ni] = *stk::mesh::field_data(*wallTemperature_, node);
@@ -197,15 +200,15 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
         const int ipNpf = ip*nodesPerFace;
 
         const int nn = ipNodeMap[ip];
-
+        
         // zero out vector quantities; squeeze in aMag
         double aMag = 0.0;
         for ( int j = 0; j < nDim; ++j ) {
-          const double axj = areaVec[ipNdim+j];
+          const double axj = areaVec[ipNdim+j];          
           aMag += axj*axj;
         }
         aMag = std::sqrt(aMag);
-
+        
         // interpolate to bip
         double tBip = 0.0;
         double walltBip = 0.0;
@@ -225,7 +228,7 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
 
         // extract bip data
         const double yp = wallNormalDistanceBip[ip];
-        const double utau= wallFrictionVelocityBip[ip];
+        const double utau = wallFrictionVelocityBip[ip];
 
         // determine LOW quantities
         const double yplus = rhoBip*yp*utau/muBip;
@@ -244,10 +247,10 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
 
 	const double hflux = lambda*(tBip-walltBip);
 	p_rhs[nn] -= hflux;
-	
+        
 	// sensitivities
         const int rowR = nn*nodesPerFace;
-        const double lhsFac = lambda/cpBip*aMag;
+        const double lhsFac = lambda/cpBip;
         for ( int ic = 0; ic < nodesPerFace; ++ic ) {
           const double r = p_shape_function[ipNpf+ic];
           p_lhs[rowR+ic] += r*lhsFac;

@@ -9,6 +9,7 @@
 #include "EnthalpyEquationSystem.h"
 #include "AlgorithmDriver.h"
 #include "AssembleEnthalpyWallFunctionSolverAlgorithm.h"
+#include "AssembleEnthalpyWallFunctionProjectedSolverAlgorithm.h"
 #include "AssembleScalarFluxBCSolverAlgorithm.h"
 #include "AssembleScalarEdgeOpenSolverAlgorithm.h"
 #include "AssembleScalarEdgeSolverAlgorithm.h"
@@ -746,12 +747,10 @@ EnthalpyEquationSystem::register_wall_bc(
   // check to see if this bc is a CHT type
   const bool isInterface = userData.isInterface_;
 
-  // check for wall function; warn user that this is not yet supported
+  // check for wall function approaches
   const bool anyWallFunctionActivated = userData.wallFunctionApproach_ || userData.wallFunctionProjectedApproach_;
-  if (userData.wallFunctionProjectedApproach_)
-    NaluEnv::self().naluOutputP0() << "Projected wall function for energy is not supported; standard applied" << std::endl;
   
-  // check that is was specified (okay if it is not)
+  // check that it was specified (okay if it is not)
   if ( bc_data_specified(userData, temperatureName) ) {
 
     // bc data work (copy, enthalpy evaluation, etc.)
@@ -765,26 +764,43 @@ EnthalpyEquationSystem::register_wall_bc(
     if ( anyWallFunctionActivated ) {
 
       const AlgorithmType wfAlgType = WALL_FCN;
+      const AlgorithmType wfAlgProjectedType = WALL_FCN_PROJ;
 
-      if ( userData.wallFunctionProjectedApproach_ ) {
-	NaluEnv::self().naluOutputP0()
-	  << "Projected wall function energy CHT is not supported; standard applied" << std::endl;
-      }
-
-      // solver contribution
-      std::map<AlgorithmType, SolverAlgorithm *>::iterator itsi =
-	solverAlgDriver_->solverAlgMap_.find(wfAlgType);
-      if ( itsi == solverAlgDriver_->solverAlgMap_.end() ) {
-	AssembleEnthalpyWallFunctionSolverAlgorithm *theAlg
-	  = new AssembleEnthalpyWallFunctionSolverAlgorithm(realm_, 
-							    part, 
-							    this,
-							    realm_.realmUsesEdges_,
-							    realm_.get_turb_prandtl(enthalpy_->name()));
-	solverAlgDriver_->solverAlgMap_[wfAlgType] = theAlg;
+      if ( userData.wallFunctionApproach_ ) {
+        // solver contribution
+        std::map<AlgorithmType, SolverAlgorithm *>::iterator it_wf =
+          solverAlgDriver_->solverAlgMap_.find(wfAlgType);
+        if ( it_wf == solverAlgDriver_->solverAlgMap_.end() ) {
+          AssembleEnthalpyWallFunctionSolverAlgorithm *theAlg
+            = new AssembleEnthalpyWallFunctionSolverAlgorithm(realm_, 
+                                                              part, 
+                                                              this,
+                                                              realm_.realmUsesEdges_,
+                                                              realm_.get_turb_prandtl(enthalpy_->name()));
+          solverAlgDriver_->solverAlgMap_[wfAlgType] = theAlg;
+        }
+        else {
+          it_wf->second->partVec_.push_back(part);
+        }
       }
       else {
-	itsi->second->partVec_.push_back(part);
+        // projected approach needs momentum
+        std::map<AlgorithmType, SolverAlgorithm *>::iterator it_wf =
+          solverAlgDriver_->solverAlgMap_.find(wfAlgProjectedType);
+        if ( it_wf == solverAlgDriver_->solverAlgMap_.end() ) {
+          AssembleEnthalpyWallFunctionProjectedSolverAlgorithm *theAlg 
+            = new AssembleEnthalpyWallFunctionProjectedSolverAlgorithm(realm_,
+                                                                       part,
+                                                                       this,
+                                                                       realm_.realmUsesEdges_,
+                                                                       realm_.get_turb_prandtl(enthalpy_->name()),
+                                                                       equationSystems_.pointInfoMap_,
+                                                                       equationSystems_.wallFunctionGhosting_);
+          solverAlgDriver_->solverAlgMap_[wfAlgProjectedType] = theAlg;
+        }
+        else {
+          it_wf->second->partVec_.push_back(part);
+        }
       }
     }
     else {
