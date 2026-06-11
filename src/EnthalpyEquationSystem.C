@@ -8,6 +8,8 @@
 
 #include "EnthalpyEquationSystem.h"
 #include "AlgorithmDriver.h"
+#include "AssembleEnthalpyWallFunctionSolverAlgorithm.h"
+#include "AssembleEnthalpyWallFunctionProjectedSolverAlgorithm.h"
 #include "AssembleScalarFluxBCSolverAlgorithm.h"
 #include "AssembleScalarEdgeOpenSolverAlgorithm.h"
 #include "AssembleScalarEdgeSolverAlgorithm.h"
@@ -745,12 +747,10 @@ EnthalpyEquationSystem::register_wall_bc(
   // check to see if this bc is a CHT type
   const bool isInterface = userData.isInterface_;
 
-  // check for wall function; warn user that this is not yet supported
-  const bool wallFunctionApproach = userData.wallFunctionApproach_;
-  if (wallFunctionApproach)
-    NaluEnv::self().naluOutputP0() << "Sorry, wall function not yet supported for energy; will use Dirichlet" << std::endl;
-
-  // check that is was specified (okay if it is not)
+  // check for wall function approaches
+  const bool anyWallFunctionActivated = userData.wallFunctionApproach_ || userData.wallFunctionProjectedApproach_;
+  
+  // check that it was specified (okay if it is not)
   if ( bc_data_specified(userData, temperatureName) ) {
 
     // bc data work (copy, enthalpy evaluation, etc.)
@@ -760,16 +760,60 @@ EnthalpyEquationSystem::register_wall_bc(
     stk::mesh::put_field_on_mesh(*enthalpyBc, *part, nullptr);
     temperature_bc_setup(userData, part, temperatureBc, enthalpyBc, isInterface);
 
-    // Dirichlet bc
-    std::map<AlgorithmType, SolverAlgorithm *>::iterator itd =
-      solverAlgDriver_->solverDirichAlgMap_.find(algType);
-    if ( itd == solverAlgDriver_->solverDirichAlgMap_.end() ) {
-      DirichletBC *theAlg
-        = new DirichletBC(realm_, this, part, &enthalpyNp1, enthalpyBc, 0, 1);
-      solverAlgDriver_->solverDirichAlgMap_[algType] = theAlg;
+    // wall function or Dirichlet bc?
+    if ( anyWallFunctionActivated ) {
+
+      const AlgorithmType wfAlgType = WALL_FCN;
+      const AlgorithmType wfAlgProjectedType = WALL_FCN_PROJ;
+
+      if ( userData.wallFunctionApproach_ ) {
+        // solver contribution
+        std::map<AlgorithmType, SolverAlgorithm *>::iterator it_wf =
+          solverAlgDriver_->solverAlgMap_.find(wfAlgType);
+        if ( it_wf == solverAlgDriver_->solverAlgMap_.end() ) {
+          AssembleEnthalpyWallFunctionSolverAlgorithm *theAlg
+            = new AssembleEnthalpyWallFunctionSolverAlgorithm(realm_, 
+                                                              part, 
+                                                              this,
+                                                              realm_.realmUsesEdges_,
+                                                              realm_.get_turb_prandtl(enthalpy_->name()));
+          solverAlgDriver_->solverAlgMap_[wfAlgType] = theAlg;
+        }
+        else {
+          it_wf->second->partVec_.push_back(part);
+        }
+      }
+      else {
+        // projected approach needs momentum
+        std::map<AlgorithmType, SolverAlgorithm *>::iterator it_wf =
+          solverAlgDriver_->solverAlgMap_.find(wfAlgProjectedType);
+        if ( it_wf == solverAlgDriver_->solverAlgMap_.end() ) {
+          AssembleEnthalpyWallFunctionProjectedSolverAlgorithm *theAlg 
+            = new AssembleEnthalpyWallFunctionProjectedSolverAlgorithm(realm_,
+                                                                       part,
+                                                                       this,
+                                                                       realm_.realmUsesEdges_,
+                                                                       realm_.get_turb_prandtl(enthalpy_->name()),
+                                                                       equationSystems_.pointInfoMap_,
+                                                                       equationSystems_.wallFunctionGhosting_);
+          solverAlgDriver_->solverAlgMap_[wfAlgProjectedType] = theAlg;
+        }
+        else {
+          it_wf->second->partVec_.push_back(part);
+        }
+      }
     }
     else {
-      itd->second->partVec_.push_back(part);
+      std::map<AlgorithmType, SolverAlgorithm *>::iterator itd =
+	solverAlgDriver_->solverDirichAlgMap_.find(algType);
+      if ( itd == solverAlgDriver_->solverDirichAlgMap_.end() ) {
+	DirichletBC *theAlg
+	  = new DirichletBC(realm_, this, part, &enthalpyNp1, enthalpyBc, 0, 1);
+	solverAlgDriver_->solverDirichAlgMap_[algType] = theAlg;
+      }
+      else {
+	itd->second->partVec_.push_back(part);
+      }
     }
 
     // interface bc fields

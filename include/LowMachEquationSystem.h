@@ -15,7 +15,6 @@
 
 namespace stk{
   struct topology;
-  class Ghosting;
 }
 
 namespace sierra{
@@ -33,7 +32,6 @@ class ProjectedNodalGradientEquationSystem;
 class SurfaceForceAndMomentAlgorithmDriver;
 class SixDofSurfaceForceAndMomentAlgorithmDriver;
 class WallFunctionParamsAlgorithmDriver;
-class PointInfo;
 
 /** Low-Mach formulation of the Navier-Stokes Equations
  *
@@ -191,17 +189,13 @@ public:
   AlgorithmDriver *tviscAlgDriver_;
   AlgorithmDriver *cflReyAlgDriver_;
   WallFunctionParamsAlgorithmDriver *wallFunctionParamsAlgDriver_;  
-  stk::mesh::Ghosting *wallFunctionGhosting_;
 
   ProjectedNodalGradientEquationSystem *projectedNodalGradEqs_;
 
   double firstPNGResidual_;
 
   // saved of mesh parts that are not to be projected
-  std::vector<stk::mesh::Part *> notProjectedPart_;
-  
-  // projected in space points
-  std::map<std::string, std::vector<std::vector<PointInfo *> > > pointInfoMap_;
+  std::vector<stk::mesh::Part *> notProjectedPart_;  
 };
 
 class ContinuityEquationSystem : public EquationSystem {

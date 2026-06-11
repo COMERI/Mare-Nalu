@@ -18,6 +18,7 @@
 // stk
 namespace stk{
 namespace mesh{
+class Ghosting;
 class Part;
 }
 }
@@ -36,11 +37,12 @@ namespace YAML {
 namespace sierra{
 namespace nalu{
 
-class Realm;
-class EquationSystem;
-class PostProcessingData;
-class Simulation;
 class AlgorithmDriver;
+class EquationSystem;
+class PointInfo;
+class PostProcessingData;
+class Realm;
+class Simulation;
 
 typedef std::vector<EquationSystem *> EquationSystemVector;
 
@@ -198,6 +200,10 @@ class EquationSystems
 
   /// A list of tasks to be performed after all EquationSystem::solve_and_update
   std::vector<AlgorithmDriver*> postIterAlgDriver_;
+
+  // projected in space points and ghosting
+  std::map<std::string, std::vector<std::vector<PointInfo *> > > pointInfoMap_;
+  stk::mesh::Ghosting *wallFunctionGhosting_;
 };
 
 } // namespace nalu
