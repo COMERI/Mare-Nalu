@@ -22,7 +22,107 @@ linear_solvers:
     output_level: 0
     muelu_xml_file_name: ../../xml/matches_ml_default.xml
 
+transfers:
+
+  - name: xfer_fluid_thermal
+    type: geometric
+    realm_pair: [realm_2, realm_1]
+    mesh_part_pair: [surface_4, surface_3]
+    coupling_physics: fluids_cht
+
+  - name: xfer_thermal_fluids
+    type: geometric
+    realm_pair: [realm_1, realm_2]
+    mesh_part_pair: [surface_3, surface_4]
+    transfer_variables:
+      - [temperature, temperature_bc]
+      - [temperature, temperature]
+     
 realms:
+
+  - name: realm_1
+    mesh: ../../mesh/elbow.g
+    use_edges: no
+   
+    boundary_conditions:
+
+    - wall_boundary_condition: bc_exposed
+      target_name: surface_1
+      wall_user_data:
+        heat_flux: 0.0
+
+    - wall_boundary_condition: bc_osurface
+      target_name: surface_2
+      wall_user_data:
+        temperature: 400
+
+    - wall_boundary_condition: bc_isurface
+      target_name: surface_3
+      wall_user_data:
+        reference_temperature: 300
+        heat_transfer_coefficient: 0.0
+        interface: yes
+
+    - wall_boundary_condition: bc_rad
+      target_name: surface_4
+      wall_user_data:
+        emissivity: 0.8
+        irradiation: 850.0
+
+    solution_options:
+      name: myOptionsHC
+      use_consolidated_face_elem_bc_algorithm: yes
+      options:
+        - projected_nodal_gradient:
+            temperature: element
+                
+    initial_conditions:
+
+      - constant: ic_1
+        target_name: block_11
+        value:
+          temperature: 300
+
+    material_properties:
+      target_name: block_11
+      specifications:
+        - name: density
+          type: constant
+          value: 880.0 # 10x lower
+        - name: specific_heat
+          type: constant
+          value: 420.0
+        - name: thermal_conductivity
+          type: constant
+          value: 52.0
+
+    equation_systems:
+      name: theEqSys
+      max_iterations: 1
+
+      solver_system_specification:
+        temperature: solve_scalar 
+
+      systems:
+        - HeatConduction:
+            name: myHC
+            max_iterations: 1 
+            convergence_tolerance: 1.e-5
+
+    output:
+      output_data_base_name: thermal.e
+      output_frequency: 5
+      output_node_set: no 
+      output_variables:
+       - dual_nodal_volume
+       - temperature
+       - dtdx
+       - density
+       - thermal_conductivity
+       - specific_heat
+       - assembled_wall_area_ht
+       - reference_temperature
+       - heat_transfer_coefficient
 
   - name: realm_2
     mesh: ../../mesh/horseshoe.g
@@ -93,9 +193,9 @@ realms:
         target_name: block_5
         value:
           pressure: 0
-          velocity: [0,0,0]  
-          temperature: 300.0 
-          turbulent_ke: 1.0e-6
+          velocity: [0,0]  
+          temperature: 300.0
+          turbulent_ke: 1.0e-3
   
     boundary_conditions:
 
@@ -118,7 +218,7 @@ realms:
       target_name: surface_3
       wall_user_data:
         velocity: [0,0,0]
-        temperature: 301.0
+        temperature: 300.0
         use_wall_function_projected: yes
         use_neumann_condition: yes
         projected_distance: 1.0e-3
@@ -127,15 +227,19 @@ realms:
       target_name: surface_4
       wall_user_data:
         velocity: [0,0,0]
-        temperature: 350.0
+        temperature: 300.0
         use_wall_function_projected: yes
         use_neumann_condition: yes
         projected_distance: 1.0e-3
+        interface: yes 
 
     solution_options:
       name: myOptions
       turbulence_model: ksgs
-    
+
+      use_consolidated_solver_algorithm: yes
+      use_consolidated_face_elem_bc_algorithm: yes
+
       options:
           
         - peclet_function_form:
@@ -152,7 +256,7 @@ realms:
             velocity: 20.0
             enthalpy: 4.0
             turbulent_ke: 4.0
-   
+
         - laminar_prandtl:
             enthalpy: 1.0
             turbulent_ke: 1.0
@@ -161,8 +265,11 @@ realms:
             enthalpy: 1.0
             turbulent_ke: 0.9
 
-        - source_terms:
-            continuity: density_time_derivative
+        - element_source_terms:
+            momentum: [lumped_momentum_time_derivative, advection_diffusion, NSO_2ND_ALT]
+            continuity: [lumped_density_time_derivative, advection]
+            enthalpy: [lumped_enthalpy_time_derivative, upw_advection_diffusion]
+            turbulent_ke: [lumped_turbulent_ke_time_derivative, upw_advection_diffusion, ksgs]
 
         - limiter:
             pressure: no
@@ -174,35 +281,43 @@ realms:
     
     - type: surface
       physics: surface_force_and_moment_wall_function_projected
-      output_file_name: elemPipeLOWp.dat
+      output_file_name: elemPipeCHTLOWp.dat
       frequency: 1
       parameters: [0,0,0]
       target_name: [surface_3, surface_4]
 
     output:
-      output_data_base_name: output/fluidsLOWp.e
+      output_data_base_name: fluids.e
       output_frequency: 5
       output_node_set: no
       output_variables:
        - velocity
        - pressure
+       - density
        - temperature
        - temperature_bc
-       - turbulent_ke
-       - turbulent_viscosity
        - enthalpy
        - assembled_wall_area
+       - reference_temperature
+       - heat_transfer_coefficient
        - yplus
+       - tau_wall
+       - tau_wall_vector
 
 Time_Integrators:
   - StandardTimeIntegrator:
       name: ti_1
       start_time: 0
-      termination_time: 0.01
-      time_step: 0.0001
+      termination_time: 0.02
+      time_step: 0.0002
       time_stepping_type: fixed
       time_step_count: 0
       nonlinear_iterations: 1 
 
       realms:
+        - realm_1
         - realm_2
+
+      transfers:
+        - xfer_fluid_thermal
+        - xfer_thermal_fluid

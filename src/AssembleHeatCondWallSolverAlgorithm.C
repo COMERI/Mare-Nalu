@@ -192,7 +192,7 @@ AssembleHeatCondWallSolverAlgorithm::execute()
         // form convection and rhs contribution
         const double flux = (qBip + alphaBip*(tRefBip - tBip)) * magA;
         p_rhs[nn] += flux;
-	
+
         // sensitivities
         const int rowR = nn*nodesPerFace;
         const double lhsFac = alphaBip*magA;

@@ -7,10 +7,8 @@
 
 
 // nalu
-#include <AssembleEnthalpyWallFunctionProjectedSolverAlgorithm.h>
-#include <SolverAlgorithm.h>
-#include <EquationSystem.h>
-#include <LinearSystem.h>
+#include <ComputeHeatTransferWallFunctionProjectedAlgorithm.h>
+#include <Algorithm.h>
 #include <PointInfo.h>
 #include <FieldTypeDef.h>
 #include <Realm.h>
@@ -33,20 +31,19 @@ namespace nalu{
 //==========================================================================
 // Class Definition
 //==========================================================================
-// AssembleEnthalpyWallFunctionProjectedSolverAlgorithm - elem/edge proj LOW
+// ComputeHeatTransferWallFunctionProjectedAlgorithm - elem/edge proj LOW h/Too
 //==========================================================================
 //--------------------------------------------------------------------------
 //-------- constructor -----------------------------------------------------
 //--------------------------------------------------------------------------
-AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::AssembleEnthalpyWallFunctionProjectedSolverAlgorithm(
+ComputeHeatTransferWallFunctionProjectedAlgorithm::ComputeHeatTransferWallFunctionProjectedAlgorithm(
   Realm &realm,
   stk::mesh::Part *part,
-  EquationSystem *eqSystem,
   const bool &useShifted,
   const double sigmaT,
   std::map<std::string, std::vector<std::vector<PointInfo *> > > &pointInfoMap,
   stk::mesh::Ghosting *wallFunctionGhosting)
-  : SolverAlgorithm(realm, part, eqSystem),
+  : Algorithm(realm, part),
     useShifted_(useShifted),
     pointInfoMap_(pointInfoMap),
     wallFunctionGhosting_(wallFunctionGhosting),
@@ -66,43 +63,28 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::AssembleEnthalpyWallFuncti
   exposedAreaVec_ = meta_data.get_field<double>(meta_data.side_rank(), "exposed_area_vector");
   wallFrictionVelocityBip_ = meta_data.get_field<double>(meta_data.side_rank(), "wall_friction_velocity_bip");
   wallNormalDistanceBip_ = meta_data.get_field<double>(meta_data.side_rank(), "wall_normal_distance_bip");
+  // assembled
+  assembledWallArea_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "assembled_wall_area_ht");
+  referenceTemperature_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "reference_temperature");
+  heatTransferCoefficient_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "heat_transfer_coefficient");
+  normalHeatFlux_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "normal_heat_flux");
 
   // what do we need ghosted for this alg to work?
   ghostFieldVec_.push_back(temperature_);  
 }
 
-//--------------------------------------------------------------------------
-//-------- initialize_connectivity -----------------------------------------
-//--------------------------------------------------------------------------
-void
-AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::initialize_connectivity()
-{
-  // iterate parts to match pointInfoMap_ construction
-  for ( size_t k = 0; k < partVec_.size(); ++k ) {
-    stk::mesh::PartVector partVec;
-    partVec.push_back(partVec_[k]);
-    eqSystem_->linsys_->buildFaceToNodeGraph(partVec);
-  }
-}
 
 //--------------------------------------------------------------------------
 //-------- execute ---------------------------------------------------------
 //--------------------------------------------------------------------------
 void
-AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
+ComputeHeatTransferWallFunctionProjectedAlgorithm::execute()
 {
 
   stk::mesh::BulkData & bulk_data = realm_.bulk_data();
   stk::mesh::MetaData & meta_data = realm_.meta_data();
 
   const int nDim = meta_data.spatial_dimension();
-
-  // space for LHS/RHS; nodesPerFace*nodesPerFace and nodesPerFace
-  std::vector<double> lhs;
-  std::vector<double> rhs;
-  std::vector<int> scratchIds;
-  std::vector<double> scratchVals;
-  std::vector<stk::mesh::Entity> connected_nodes;
 
   // nodal fields to gather
   std::vector<double> ws_temperature;
@@ -162,15 +144,6 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
       // mapping from ip to nodes for this ordinal; face perspective (use with face_node_relations)
       const int *ipNodeMap = meFC->ipNodeMap();
       
-      // resize some things; matrix related
-      const int lhsSize = nodesPerFace*nodesPerFace;
-      const int rhsSize = nodesPerFace;
-      lhs.resize(lhsSize);
-      rhs.resize(rhsSize);
-      scratchIds.resize(rhsSize);
-      scratchVals.resize(rhsSize);
-      connected_nodes.resize(nodesPerFace);
-
       // algorithm related; element
       ws_temperature.resize(nodesPerFace);
       ws_wall_temperature.resize(nodesPerFace);
@@ -181,8 +154,6 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
       ws_shape_function.resize(numScsBip*nodesPerFace);
       
       // pointers
-      double *p_lhs = &lhs[0];
-      double *p_rhs = &rhs[0];
       double *p_temperature = &ws_temperature[0];
       double *p_wall_temperature = &ws_wall_temperature[0];
       double *p_density = &ws_density[0];
@@ -200,13 +171,7 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
       const stk::mesh::Bucket::size_type length   = b.size();
       
       for ( stk::mesh::Bucket::size_type k = 0 ; k < length ; ++k ) {
-        
-        // zero lhs/rhs
-        for ( int p = 0; p < lhsSize; ++p )
-          p_lhs[p] = 0.0;
-        for ( int p = 0; p < rhsSize; ++p )
-          p_rhs[p] = 0.0;
-        
+                
         // get face
         stk::mesh::Entity face = b[k];
         
@@ -216,7 +181,6 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
         stk::mesh::Entity const * face_node_rels = bulk_data.begin_nodes(face);
         for ( int ni = 0; ni < nodesPerFace; ++ni ) {
           stk::mesh::Entity node = face_node_rels[ni];
-          connected_nodes[ni] = node;
           
           // gather scalars
           p_temperature[ni]   = *stk::mesh::field_data(*temperature_, node);
@@ -240,9 +204,17 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
           
           const int ipNdim = ip*nDim;
           const int ipNpf = ip*nodesPerFace;
-          
-          const int nn = ipNodeMap[ip];
 
+	  // nearest node
+          const int nn = ipNodeMap[ip];
+	  stk::mesh::Entity nnode = face_node_rels[nn];
+
+	  // pointer to nodal data
+	  double *assembledWallArea = stk::mesh::field_data(*assembledWallArea_, nnode);
+	  double *referenceTemperature = stk::mesh::field_data(*referenceTemperature_, nnode);
+	  double *heatTransferCoefficient = stk::mesh::field_data(*heatTransferCoefficient_, nnode);
+	  double *normalHeatFlux = stk::mesh::field_data(*normalHeatFlux_, nnode);
+	  
           // extract point info for this ip - must match the construction of the pInfo vector
           PointInfo *pInfo = faceInfoVec[ip];
           stk::mesh::Entity owningElement = pInfo->owningElement_;
@@ -285,7 +257,7 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
           double kBip = 0.0;
           for ( int ic = 0; ic < nodesPerFace; ++ic ) {
             const double r = p_shape_function[ipNpf+ic];
-            tWallBip += r*p_wall_temperature[ic];
+	    tWallBip += r*p_wall_temperature[ic];
             rhoBip += r*p_density[ic];
             muBip += r*p_viscosity[ic];
             cpBip += r*p_specific_heat[ic];
@@ -312,19 +284,11 @@ AssembleEnthalpyWallFunctionProjectedSolverAlgorithm::execute()
             lambda = rhoBip*cpBip*utau/Tplus*aMag;
           
           const double hflux = lambda*(tProjected-tWallBip);
-          p_rhs[nn] -= hflux;
-          
-          // sensitivities (approximate)
-          const int rowR = nn*nodesPerFace;
-          const double lhsFac = lambda/cpBip;
-          for ( int ic = 0; ic < nodesPerFace; ++ic ) {
-            const double r = p_shape_function[ipNpf+ic];
-            p_lhs[rowR+ic] += r*lhsFac;
-          }
-        }
-        
-        apply_coeff(connected_nodes, scratchIds, scratchVals, rhs, lhs, __FILE__);
-        
+	  *assembledWallArea += aMag;
+	  *normalHeatFlux += hflux;
+	  *referenceTemperature += lambda*tProjected*aMag;
+	  *heatTransferCoefficient -= lambda*tWallBip*aMag;
+	}
       }
     }
   }
