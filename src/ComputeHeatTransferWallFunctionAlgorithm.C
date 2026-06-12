@@ -7,10 +7,8 @@
 
 
 // nalu
-#include <AssembleEnthalpyWallFunctionSolverAlgorithm.h>
-#include <SolverAlgorithm.h>
-#include <EquationSystem.h>
-#include <LinearSystem.h>
+#include <ComputeHeatTransferWallFunctionAlgorithm.h>
+#include <Algorithm.h>
 #include <FieldTypeDef.h>
 #include <Realm.h>
 #include <master_element/MasterElement.h>
@@ -32,18 +30,17 @@ namespace nalu{
 //==========================================================================
 // Class Definition
 //==========================================================================
-// AssembleEnthalpyWallFunctionSolverAlgorithm - elem/edge LOW
+// ComputeHeatTransferWallFunctionAlgorithm - elem/edge LOW h and Too
 //==========================================================================
 //--------------------------------------------------------------------------
 //-------- constructor -----------------------------------------------------
 //--------------------------------------------------------------------------
-AssembleEnthalpyWallFunctionSolverAlgorithm::AssembleEnthalpyWallFunctionSolverAlgorithm(
+ComputeHeatTransferWallFunctionAlgorithm::ComputeHeatTransferWallFunctionAlgorithm(
   Realm &realm,
   stk::mesh::Part *part,
-  EquationSystem *eqSystem,
   const bool &useShifted,
   const double sigmaT)
-  : SolverAlgorithm(realm, part, eqSystem),
+  : Algorithm(realm, part),
     useShifted_(useShifted),
     yplusCrit_(11.63),
     elog_(9.8),
@@ -61,35 +58,24 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::AssembleEnthalpyWallFunctionSolverA
   exposedAreaVec_ = meta_data.get_field<double>(meta_data.side_rank(), "exposed_area_vector");
   wallFrictionVelocityBip_ = meta_data.get_field<double>(meta_data.side_rank(), "wall_friction_velocity_bip");
   wallNormalDistanceBip_ = meta_data.get_field<double>(meta_data.side_rank(), "wall_normal_distance_bip");
-}
-
-//--------------------------------------------------------------------------
-//-------- initialize_connectivity -----------------------------------------
-//--------------------------------------------------------------------------
-void
-AssembleEnthalpyWallFunctionSolverAlgorithm::initialize_connectivity()
-{
-  eqSystem_->linsys_->buildFaceToNodeGraph(partVec_);
+  // assembled
+  assembledWallArea_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "assembled_wall_area_ht");
+  referenceTemperature_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "reference_temperature");
+  heatTransferCoefficient_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "heat_transfer_coefficient");
+  normalHeatFlux_ = meta_data.get_field<double>(stk::topology::NODE_RANK, "normal_heat_flux");
 }
 
 //--------------------------------------------------------------------------
 //-------- execute ---------------------------------------------------------
 //--------------------------------------------------------------------------
 void
-AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
+ComputeHeatTransferWallFunctionAlgorithm::execute()
 {
 
   stk::mesh::BulkData & bulk_data = realm_.bulk_data();
   stk::mesh::MetaData & meta_data = realm_.meta_data();
 
   const int nDim = meta_data.spatial_dimension();
-
-  // space for LHS/RHS; nodesPerFace*nodesPerFace and nodesPerFace
-  std::vector<double> lhs;
-  std::vector<double> rhs;
-  std::vector<int> scratchIds;
-  std::vector<double> scratchVals;
-  std::vector<stk::mesh::Entity> connected_nodes;
 
   // nodal fields to gather
   std::vector<double> ws_temperature;
@@ -123,15 +109,6 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
     // mapping from ip to nodes for this ordinal; face perspective (use with face_node_relations)
     const int *ipNodeMap = meFC->ipNodeMap();
 
-    // resize some things; matrix related
-    const int lhsSize = nodesPerFace*nodesPerFace;
-    const int rhsSize = nodesPerFace;
-    lhs.resize(lhsSize);
-    rhs.resize(rhsSize);
-    scratchIds.resize(rhsSize);
-    scratchVals.resize(rhsSize);
-    connected_nodes.resize(nodesPerFace);
-
     // algorithm related; element
     ws_temperature.resize(nodesPerFace);
     ws_wall_temperature.resize(nodesPerFace);
@@ -142,8 +119,6 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
     ws_shape_function.resize(numScsBip*nodesPerFace);
 
     // pointers
-    double *p_lhs = &lhs[0];
-    double *p_rhs = &rhs[0];
     double *p_temperature = &ws_temperature[0];
     double *p_wall_temperature = &ws_wall_temperature[0];
     double *p_density = &ws_density[0];
@@ -162,12 +137,6 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
 
     for ( stk::mesh::Bucket::size_type k = 0 ; k < length ; ++k ) {
 
-      // zero lhs/rhs
-      for ( int p = 0; p < lhsSize; ++p )
-        p_lhs[p] = 0.0;
-      for ( int p = 0; p < rhsSize; ++p )
-        p_rhs[p] = 0.0;
-
       // get face
       stk::mesh::Entity face = b[k];
 
@@ -177,7 +146,6 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
       stk::mesh::Entity const * face_node_rels = bulk_data.begin_nodes(face);
       for ( int ni = 0; ni < nodesPerFace; ++ni ) {
         stk::mesh::Entity node = face_node_rels[ni];
-        connected_nodes[ni] = node;
         
         // gather scalars
         p_temperature[ni]   = *stk::mesh::field_data(*temperature_, node);
@@ -192,15 +160,23 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
       const double * areaVec = stk::mesh::field_data(*exposedAreaVec_, face);
       const double *wallNormalDistanceBip = stk::mesh::field_data(*wallNormalDistanceBip_, face);
       const double *wallFrictionVelocityBip = stk::mesh::field_data(*wallFrictionVelocityBip_, face);
-
+      
       // loop over boundary ips
       for ( int ip = 0; ip < numScsBip; ++ip ) {
 
         const int ipNdim = ip*nDim;
         const int ipNpf = ip*nodesPerFace;
 
+	// nearest node
         const int nn = ipNodeMap[ip];
-        
+        stk::mesh::Entity nnode = face_node_rels[nn];
+
+	// pointer to nodal data
+	double *assembledWallArea = stk::mesh::field_data(*assembledWallArea_, nnode);
+	double *referenceTemperature = stk::mesh::field_data(*referenceTemperature_, nnode);
+	double *heatTransferCoefficient = stk::mesh::field_data(*heatTransferCoefficient_, nnode);
+	double *normalHeatFlux = stk::mesh::field_data(*normalHeatFlux_, nnode);
+
         // zero out vector quantities; squeeze in aMag
         double aMag = 0.0;
         for ( int j = 0; j < nDim; ++j ) {
@@ -246,19 +222,11 @@ AssembleEnthalpyWallFunctionSolverAlgorithm::execute()
           lambda = rhoBip*cpBip*utau/Tplus*aMag;
 
 	const double hflux = lambda*(tBip-tWallBip);
-	p_rhs[nn] -= hflux;
-        
-	// sensitivities
-        const int rowR = nn*nodesPerFace;
-        const double lhsFac = lambda/cpBip;
-        for ( int ic = 0; ic < nodesPerFace; ++ic ) {
-          const double r = p_shape_function[ipNpf+ic];
-          p_lhs[rowR+ic] += r*lhsFac;
-        }
+	*assembledWallArea += aMag;
+        *normalHeatFlux += hflux;
+        *referenceTemperature += lambda*tBip*aMag;
+        *heatTransferCoefficient -= lambda*tWallBip*aMag;
       }
-      
-      apply_coeff(connected_nodes, scratchIds, scratchVals, rhs, lhs, __FILE__);
-
     }
   }
 }

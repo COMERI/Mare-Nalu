@@ -28,6 +28,8 @@
 #include "AuxFunctionAlgorithm.h"
 #include "ComputeHeatTransferEdgeWallAlgorithm.h"
 #include "ComputeHeatTransferElemWallAlgorithm.h"
+#include "ComputeHeatTransferWallFunctionAlgorithm.h"
+#include "ComputeHeatTransferWallFunctionProjectedAlgorithm.h"
 #include "ConstantAuxFunction.h"
 #include "CopyFieldAlgorithm.h"
 #include "DirichletBC.h"
@@ -731,8 +733,10 @@ EnthalpyEquationSystem::register_wall_bc(
   const WallBoundaryConditionData &wallBCData)
 {
 
-  // algorithm type
+  // algorithm type(s)
   const AlgorithmType algType = WALL;
+  const AlgorithmType wfAlgType = WALL_FCN;
+  const AlgorithmType wfAlgProjectedType = WALL_FCN_PROJ;
 
   // np1
   ScalarFieldType &enthalpyNp1 = enthalpy_->field_of_state(stk::mesh::StateNP1);
@@ -762,9 +766,6 @@ EnthalpyEquationSystem::register_wall_bc(
 
     // wall function or Dirichlet bc?
     if ( anyWallFunctionActivated ) {
-
-      const AlgorithmType wfAlgType = WALL_FCN;
-      const AlgorithmType wfAlgProjectedType = WALL_FCN_PROJ;
 
       if ( userData.wallFunctionApproach_ ) {
         // solver contribution
@@ -841,23 +842,57 @@ EnthalpyEquationSystem::register_wall_bc(
       assembleWallHeatTransferAlgDriver_ = new AssembleWallHeatTransferAlgorithmDriver(realm_);
     }
 
-    // create the edge or element algorithm for h and Too
-    std::map<AlgorithmType, Algorithm *>::iterator it
-      = assembleWallHeatTransferAlgDriver_->algMap_.find(algType);
-    if ( it == assembleWallHeatTransferAlgDriver_->algMap_.end() ) {
-      Algorithm *theAlg = NULL;
-      if ( realm_.realmUsesEdges_ ) {
-        theAlg = new ComputeHeatTransferEdgeWallAlgorithm(realm_, part);
+    // create the edge or element algorithm for h and Too; modeled or resolved
+    if ( anyWallFunctionActivated ) {
+      if ( userData.wallFunctionApproach_ ) {	
+	// LOW
+	std::map<AlgorithmType, Algorithm *>::iterator it
+	  = assembleWallHeatTransferAlgDriver_->algMap_.find(wfAlgType);
+	if ( it == assembleWallHeatTransferAlgDriver_->algMap_.end() ) {
+	  Algorithm *theAlg = new ComputeHeatTransferWallFunctionAlgorithm(realm_, part,
+									   realm_.realmUsesEdges_,
+									   realm_.get_turb_prandtl(enthalpy_->name()));
+	  assembleWallHeatTransferAlgDriver_->algMap_[wfAlgType] = theAlg;
+	}
+	else {
+	  it->second->partVec_.push_back(part);
+	}
       }
       else {
-        theAlg = new ComputeHeatTransferElemWallAlgorithm(realm_, part);
+	// LOW; projected
+	std::map<AlgorithmType, Algorithm *>::iterator it
+	  = assembleWallHeatTransferAlgDriver_->algMap_.find(wfAlgProjectedType);
+	if ( it == assembleWallHeatTransferAlgDriver_->algMap_.end() ) {
+	  Algorithm *theAlg = new ComputeHeatTransferWallFunctionProjectedAlgorithm(realm_, part,
+										    realm_.realmUsesEdges_,
+										    realm_.get_turb_prandtl(enthalpy_->name()),
+										    equationSystems_.pointInfoMap_,
+										    equationSystems_.wallFunctionGhosting_);
+	  assembleWallHeatTransferAlgDriver_->algMap_[wfAlgProjectedType] = theAlg;
+	}
+	else {
+	  it->second->partVec_.push_back(part);
+	}
       }
-      assembleWallHeatTransferAlgDriver_->algMap_[algType] = theAlg;
     }
     else {
-      it->second->partVec_.push_back(part);
+      // resolved
+      std::map<AlgorithmType, Algorithm *>::iterator it
+	= assembleWallHeatTransferAlgDriver_->algMap_.find(algType);
+      if ( it == assembleWallHeatTransferAlgDriver_->algMap_.end() ) {
+	Algorithm *theAlg = NULL;
+	if ( realm_.realmUsesEdges_ ) {
+	  theAlg = new ComputeHeatTransferEdgeWallAlgorithm(realm_, part);
+	}
+	else {
+	  theAlg = new ComputeHeatTransferElemWallAlgorithm(realm_, part);
+	}
+	assembleWallHeatTransferAlgDriver_->algMap_[algType] = theAlg;
+      }
+      else {
+	it->second->partVec_.push_back(part);
+      }
     }
-
   }
   else if ( userData.heatFluxSpec_ ) {
 
