@@ -224,8 +224,8 @@ ComputeHeatTransferWallFunctionAlgorithm::execute()
 	const double hflux = lambda*(tBip-tWallBip);
 	*assembledWallArea += aMag;
         *normalHeatFlux += hflux;
-        *referenceTemperature += lambda*tBip*aMag;
-        *heatTransferCoefficient -= lambda*tWallBip*aMag;
+        *referenceTemperature += lambda*tBip;
+        *heatTransferCoefficient -= lambda*tWallBip;
       }
     }
   }

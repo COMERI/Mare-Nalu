@@ -36,7 +36,6 @@ transfers:
     mesh_part_pair: [surface_3, surface_4]
     transfer_variables:
       - [temperature, temperature_bc]
-      - [temperature, temperature]
      
 realms:
 
@@ -300,6 +299,7 @@ realms:
        - assembled_wall_area
        - reference_temperature
        - heat_transfer_coefficient
+       - normal_heat_flux
        - yplus
        - tau_wall
        - tau_wall_vector

@@ -762,7 +762,7 @@ EnthalpyEquationSystem::register_wall_bc(
     stk::mesh::put_field_on_mesh(*temperatureBc, *part, nullptr);
     ScalarFieldType *enthalpyBc = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "enthalpy_bc"));
     stk::mesh::put_field_on_mesh(*enthalpyBc, *part, nullptr);
-    temperature_bc_setup(userData, part, temperatureBc, enthalpyBc, isInterface);
+    temperature_bc_setup(userData, part, temperatureBc, enthalpyBc, isInterface, !anyWallFunctionActivated);
 
     // wall function or Dirichlet bc?
     if ( anyWallFunctionActivated ) {
