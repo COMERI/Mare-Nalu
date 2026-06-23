@@ -2826,7 +2826,7 @@ Realm::set_initial_displacement(
   const std::vector<double> &unitVec,
   const double theAngle)
 {
-  std::cout << "Realm::set_initial_displacement() " << std::endl;
+  // we seek q such that we rotate n_o (0,0,1) onto n, and then roll theta about n
   const int nDim = meta_data().spatial_dimension();
 
   // convert to radians
@@ -2835,6 +2835,17 @@ Realm::set_initial_displacement(
   // local space; Nalu current coords and rotated coords; generalized for 2D and 3D
   double mcX[3] = {0.0,0.0,0.0};
   double rcX[3] = {0.0,0.0,0.0};
+
+  // save off unit vectors (re-normalize to be safe)
+  const double denom = std::sqrt(unitVec[0]*unitVec[0] + unitVec[1]*unitVec[1] + unitVec[2]*unitVec[2]);
+  const double nx = unitVec[0]/denom;
+  const double ny = unitVec[1]/denom;
+  const double nz = unitVec[2]/denom;
+
+  // error check (180 degree rotation singularity)
+  const double small = 1.0e-16;
+  if ( std::abs(1.0 + nz) < small )
+    NaluEnv::self().naluOutputP0() << "WARNING: initial_rotation may be singular" << std::endl;
   
   VectorFieldType *modelCoords = meta_data().get_field<double>(stk::topology::NODE_RANK, "coordinates");
   VectorFieldType *displacement = meta_data().get_field<double>(stk::topology::NODE_RANK, "mesh_displacement");
@@ -2862,13 +2873,15 @@ Realm::set_initial_displacement(
       const double cY = mcX[1] - centroidCoords[1];
       const double cZ = mcX[2] - centroidCoords[2];
 
-      const double sinOTby2 = sin(theAngleInRad*0.5);
-      const double cosOTby2 = cos(theAngleInRad*0.5);
+      const double s = sin(theAngleInRad*0.5);
+      const double c = cos(theAngleInRad*0.5);
+
+      const double fac = 1.0/std::sqrt(2.0*(1.0+nz));
       
-      const double q0 = cosOTby2;
-      const double q1 = sinOTby2*unitVec[0];
-      const double q2 = sinOTby2*unitVec[1];
-      const double q3 = sinOTby2*unitVec[2];    
+      const double q0 = fac*(1.0+nz)*c;
+      const double q1 = fac*(-ny*c + nx*s);
+      const double q2 = fac*(nx*c + ny*s);
+      const double q3 = fac*(1.0+nz)*s;
       
       // rotated model coordinates; converted to displacement; add back in centroid
       rcX[0] = (q0*q0 + q1*q1 - q2*q2 - q3*q3)*cX + 2.0*(q1*q2 - q0*q3)*cY + 2.0*(q0*q2 + q1*q3)*cZ - mcX[0] + centroidCoords[0];
