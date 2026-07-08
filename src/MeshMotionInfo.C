@@ -31,15 +31,13 @@ MeshMotionInfo::MeshMotionInfo(
   const double omega, 
   std::vector<double> centroid,
   std::vector<double> unitVec,
-  const bool computeCentroid,
-  const double theAngle)
+  const bool computeCentroid)
   : meshMotionBlock_(meshMotionBlock), 
     omega_(omega), 
     centroid_(centroid),
     unitVec_(unitVec),
     computeCentroid_(computeCentroid),
     computeCentroidCompleted_(false),
-    theAngle_(theAngle),
     sixDof_(false),
     bodyDispCC_(std::vector<double>(3,0.0)),
     bodyVel_(std::vector<double>(3,0.0)),
@@ -48,7 +46,35 @@ MeshMotionInfo::MeshMotionInfo(
     bodyMass_(0.0),
     bodyDen_(0.0)
 {
+  // nothing
+}
 
+// fixed constructor
+MeshMotionInfo::MeshMotionInfo(
+  std::vector<std::string> meshMotionBlock, 
+  const double omega, 
+  std::vector<double> centroid,
+  std::vector<double> unitVec,
+  const bool computeCentroid,
+  double theAngle,
+  std::vector<double> unitVecRef)
+  : meshMotionBlock_(meshMotionBlock), 
+    omega_(omega), 
+    centroid_(centroid),
+    unitVec_(unitVec),
+    computeCentroid_(computeCentroid),
+    computeCentroidCompleted_(false),
+    theAngle_(theAngle),
+    unitVecRef_(unitVecRef),
+    sixDof_(false),
+    bodyDispCC_(std::vector<double>(3,0.0)),
+    bodyVel_(std::vector<double>(3,0.0)),
+    bodyAccel_(std::vector<double>(3,0.0)),
+    bodyAlpha_(std::vector<double>(3,0.0)),
+    bodyMass_(0.0),
+    bodyDen_(0.0)
+{
+  // nothing
 }
 
 // 6-DOF constructor
