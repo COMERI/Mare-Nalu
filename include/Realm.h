@@ -222,6 +222,7 @@ class Realm {
     stk::mesh::Part *targetPart,
     const std::vector<double> &centroidCoords,
     const std::vector<double> &unitVec,
+    const std::vector<double> &unitVecRef,
     const double theAngle);
 
   // non-conformal-like algorithm suppoer

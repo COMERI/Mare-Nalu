@@ -623,12 +623,24 @@ SolutionOptions::load(const YAML::Node & y_node)
 	  NaluEnv::self().naluOutputP0() << "SolutionOptions::load() unit_vector not supplied; will use 0,0,1" << std::endl;
 	  unitVec[2] = 1.0;
 	}
+
+        // look for reference unit vector; provide default
+	std::vector<double> unitVecRef(3,0.0); 
+	const YAML::Node uVref = y_option["reference_unit_vector"];
+	if ( uVref ) {
+	  for ( size_t i = 0; i < uVref.size(); ++i )
+	    unitVecRef[i] = uVref[i].as<double>() ;
+	}
+	else {
+	  NaluEnv::self().naluOutputP0() << "SolutionOptions::load() reference_unit_vector not supplied; will use 0,0,1" << std::endl;
+	  unitVecRef[2] = 1.0;
+	}
 	
 	// extract angle
 	double theAngle = 0.0;
 	get_if_present(y_option, "angle", theAngle, theAngle);
         
-	MeshMotionInfo *meshInfo = new MeshMotionInfo(meshMotionBlock, omega, cCoordsVec, unitVec, computeCentroid, theAngle);
+	MeshMotionInfo *meshInfo = new MeshMotionInfo(meshMotionBlock, omega, cCoordsVec, unitVec, computeCentroid, theAngle, unitVecRef);
 	// set the map
 	initialMeshDisplacementInfoMap_[motionName] = meshInfo;
       }

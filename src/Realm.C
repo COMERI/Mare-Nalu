@@ -2680,9 +2680,8 @@ Realm::process_initial_displacement()
     // extract mesh info object
     MeshMotionInfo *meshInfo = iter->second;
     
-    // mesh displacement block, centroid coordinates
+    // mesh displacement block
     std::vector<std::string> meshMotionBlock = meshInfo->meshMotionBlock_;
-    std::vector<double> unitVec = meshInfo->unitVec_;
     
     // extract compute centroid option
     const bool computeCentroid = meshInfo->computeCentroid_;
@@ -2706,11 +2705,10 @@ Realm::process_initial_displacement()
       }
       else {
         if ( meshInfo->sixDof_ ) {
-          set_displacement_six_dof(targetPart, meshInfo->centroid_, meshInfo->bodyDispCC_,
-            meshInfo->bodyAngle_);
+          set_displacement_six_dof(targetPart, meshInfo->centroid_, meshInfo->bodyDispCC_, meshInfo->bodyAngle_);
         }
         else { 
-          set_initial_displacement(targetPart, meshInfo->centroid_, unitVec, meshInfo->theAngle_);
+          set_initial_displacement(targetPart, meshInfo->centroid_, meshInfo->unitVec_, meshInfo->unitVecRef_, meshInfo->theAngle_);
         }
         set_current_coordinates(targetPart);
       }
@@ -2824,6 +2822,7 @@ Realm::set_initial_displacement(
   stk::mesh::Part *targetPart,
   const std::vector<double> &centroidCoords,
   const std::vector<double> &unitVec,
+  const std::vector<double> &unitVecRef,
   const double theAngle)
 {
   // we seek q such that we rotate n_o (0,0,1) onto n, and then roll theta about n
@@ -2836,16 +2835,49 @@ Realm::set_initial_displacement(
   double mcX[3] = {0.0,0.0,0.0};
   double rcX[3] = {0.0,0.0,0.0};
 
-  // save off unit vectors (re-normalize to be safe)
-  const double denom = std::sqrt(unitVec[0]*unitVec[0] + unitVec[1]*unitVec[1] + unitVec[2]*unitVec[2]);
+  // save off unit vectors (re-normalize to be safe), desired n
+  double denom = std::sqrt(unitVec[0]*unitVec[0] + unitVec[1]*unitVec[1] + unitVec[2]*unitVec[2]);
   const double nx = unitVec[0]/denom;
   const double ny = unitVec[1]/denom;
   const double nz = unitVec[2]/denom;
 
+  // baseline no
+  denom = std::sqrt(unitVecRef[0]*unitVecRef[0] + unitVecRef[1]*unitVecRef[1] + unitVecRef[2]*unitVecRef[2]);
+  const double nox = unitVecRef[0]/denom;
+  const double noy = unitVecRef[1]/denom;
+  const double noz = unitVecRef[2]/denom;
+
+  // construct the dot product
+  double D = nox*nx + noy*ny + noz*nz;
+ 
   // error check (180 degree rotation singularity)
   const double small = 1.0e-16;
-  if ( std::abs(1.0 + nz) < small )
+  if ( std::abs(1.0 + D) < small ) {
     NaluEnv::self().naluOutputP0() << "WARNING: initial_rotation may be singular" << std::endl;
+    D += small;
+  }
+  
+  // normalization factor and sin/cos
+  const double fac = 1.0/std::sqrt(2.0*(1.0+D));
+  const double s = sin(theAngleInRad*0.5);
+  const double c = cos(theAngleInRad*0.5);
+  
+  // form q
+  const double q0 = fac*c*(1+D);
+  const double q1 = fac*(c*(noy*nz - noz*ny) + s*(nox+nx));
+  const double q2 = fac*(c*(noz*nx - nox*nz) + s*(noy+ny));
+  const double q3 = fac*(c*(nox*ny - noy*nx) + s*(noz+nz));
+
+  // save facs for each coordinate scaling
+  const double fac_xx = q0*q0 + q1*q1 - q2*q2 - q3*q3;
+  const double fac_xy = 2.0*(q1*q2 - q0*q3);
+  const double fac_xz = 2.0*(q0*q2 + q1*q3);
+  const double fac_yx = 2.0*(q1*q2 + q0*q3);
+  const double fac_yy = q0*q0 - q1*q1 + q2*q2 - q3*q3;
+  const double fac_yz = 2.0*(q2*q3 - q0*q1);
+  const double fac_zx = 2.0*(q1*q3 - q0*q2);
+  const double fac_zy = 2.0*(q0*q1 + q2*q3);
+  const double fac_zz = q0*q0 - q1*q1 - q2*q2 + q3*q3;
   
   VectorFieldType *modelCoords = meta_data().get_field<double>(stk::topology::NODE_RANK, "coordinates");
   VectorFieldType *displacement = meta_data().get_field<double>(stk::topology::NODE_RANK, "mesh_displacement");
@@ -2873,21 +2905,11 @@ Realm::set_initial_displacement(
       const double cY = mcX[1] - centroidCoords[1];
       const double cZ = mcX[2] - centroidCoords[2];
 
-      const double s = sin(theAngleInRad*0.5);
-      const double c = cos(theAngleInRad*0.5);
-
-      const double fac = 1.0/std::sqrt(2.0*(1.0+nz));
-      
-      const double q0 = fac*(1.0+nz)*c;
-      const double q1 = fac*(-ny*c + nx*s);
-      const double q2 = fac*(nx*c + ny*s);
-      const double q3 = fac*(1.0+nz)*s;
-      
       // rotated model coordinates; converted to displacement; add back in centroid
-      rcX[0] = (q0*q0 + q1*q1 - q2*q2 - q3*q3)*cX + 2.0*(q1*q2 - q0*q3)*cY + 2.0*(q0*q2 + q1*q3)*cZ - mcX[0] + centroidCoords[0];
-      rcX[1] = 2.0*(q1*q2 + q0*q3)*cX + (q0*q0 - q1*q1 + q2*q2 - q3*q3)*cY + 2.0*(q2*q3 - q0*q1)*cZ - mcX[1] + centroidCoords[1];
-      rcX[2] = 2.0*(q1*q3 - q0*q2)*cX + 2.0*(q0*q1 + q2*q3)*cY + (q0*q0 - q1*q1 - q2*q2 + q3*q3)*cZ - mcX[2] + centroidCoords[2];
-
+      rcX[0] = fac_xx*cX + fac_xy*cY + fac_xz*cZ - mcX[0] + centroidCoords[0];
+      rcX[1] = fac_yx*cX + fac_yy*cY + fac_yz*cZ - mcX[1] + centroidCoords[1];
+      rcX[2] = fac_zx*cX + fac_zy*cY + fac_zz*cZ - mcX[2] + centroidCoords[2];
+      
       // set displacement
       for ( int i = 0; i < nDim; ++i ) {
         dx[kNdim+i] = rcX[i];
