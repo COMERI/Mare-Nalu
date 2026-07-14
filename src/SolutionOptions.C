@@ -635,14 +635,46 @@ SolutionOptions::load(const YAML::Node & y_node)
 	  NaluEnv::self().naluOutputP0() << "SolutionOptions::load() reference_unit_vector not supplied; will use 0,0,1" << std::endl;
 	  unitVecRef[2] = 1.0;
 	}
-	
-	// extract angle
-	double theAngle = 0.0;
-	get_if_present(y_option, "angle", theAngle, theAngle);
+
+        // look for apparent unit vector; provide default
+        bool worriesAboutCFD = false;
+        std::vector<double> unitVecApp(3,0.0);
+        const YAML::Node uVapp = y_option["apparent_unit_vector"];
+        if ( uVapp ) {
+          worriesAboutCFD = true;
+          for ( size_t i = 0; i < uVapp.size(); ++i )
+            unitVecApp[i] = uVapp[i].as<double>() ;
+        }
+        else {
+          // no need to warn the user
+          unitVecApp[2] = 1.0;
+        }
         
-	MeshMotionInfo *meshInfo = new MeshMotionInfo(meshMotionBlock, omega, cCoordsVec, unitVec, computeCentroid, theAngle, unitVecRef);
-	// set the map
-	initialMeshDisplacementInfoMap_[motionName] = meshInfo;
+        // look for  unit vector; provide default
+        std::vector<double> unitVecEin(3,0.0);
+        const YAML::Node uVein = y_option["ein_unit_vector"];
+        if ( uVein ) {
+          if ( !worriesAboutCFD ) {
+            NaluEnv::self().naluOutputP0()
+              << "SolutionOptions::load() make sure both apparent_unit_vector and ein_unit_vector are specified" << std::endl;
+          }
+          worriesAboutCFD = true;
+          for ( size_t i = 0; i < uVein.size(); ++i )
+            unitVecEin[i] = uVein[i].as<double>() ;
+        }
+        else {
+          // no need to warn the user
+          unitVecEin[2] = 1.0;
+        }
+        
+        // extract angle
+        double theAngle = 0.0;
+        get_if_present(y_option, "angle", theAngle, theAngle);
+        
+        MeshMotionInfo *meshInfo = new MeshMotionInfo(meshMotionBlock, omega, cCoordsVec, unitVec, computeCentroid, theAngle,
+                                                      unitVecRef, unitVecApp, unitVecEin, worriesAboutCFD);
+        // set the map
+        initialMeshDisplacementInfoMap_[motionName] = meshInfo;
       }
     }
   

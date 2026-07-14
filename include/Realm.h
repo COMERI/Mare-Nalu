@@ -223,7 +223,17 @@ class Realm {
     const std::vector<double> &centroidCoords,
     const std::vector<double> &unitVec,
     const std::vector<double> &unitVecRef,
-    const double theAngle);
+    const std::vector<double> &unitVecApp,
+    const std::vector<double> &unitVecEin,
+    const double theAngle,
+    const bool worriesAboutCFD);
+  void compute_alignment_quaternion(
+    const std::vector<double> &nApp,
+    const std::vector<double> &nE,
+    double &q0,
+    double &q1,
+    double &q2,
+    double &q3);
 
   // non-conformal-like algorithm suppoer
   void initialize_non_conformal();
