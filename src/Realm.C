@@ -2708,7 +2708,9 @@ Realm::process_initial_displacement()
           set_displacement_six_dof(targetPart, meshInfo->centroid_, meshInfo->bodyDispCC_, meshInfo->bodyAngle_);
         }
         else { 
-          set_initial_displacement(targetPart, meshInfo->centroid_, meshInfo->unitVec_, meshInfo->unitVecRef_, meshInfo->theAngle_);
+          set_initial_displacement(targetPart, meshInfo->centroid_,
+                                   meshInfo->unitVec_, meshInfo->unitVecRef_, meshInfo->unitVecApp_, meshInfo->unitVecEin_,
+                                   meshInfo->theAngle_, meshInfo->worriesAboutCFD_);
         }
         set_current_coordinates(targetPart);
       }
@@ -2823,11 +2825,15 @@ Realm::set_initial_displacement(
   const std::vector<double> &centroidCoords,
   const std::vector<double> &unitVec,
   const std::vector<double> &unitVecRef,
-  const double theAngle)
+  const std::vector<double> &unitVecApp,
+  const std::vector<double> &unitVecEin,
+  const double theAngle,
+  const bool worriesAboutCFD)
 {
-  // we seek q such that we rotate n_o (0,0,1) onto n, and then roll theta about n
+  // we seek q such that we rotate n_o onto n, and then roll theta about n
+  // finally, after the roll, we correct wrt to desired CFD flow (App) and mesh (Ein) n
   const int nDim = meta_data().spatial_dimension();
-
+  
   // convert to radians
   const double theAngleInRad = theAngle*std::acos(-1.0)/180.0;
   
@@ -2862,12 +2868,63 @@ Realm::set_initial_displacement(
   const double s = sin(theAngleInRad*0.5);
   const double c = cos(theAngleInRad*0.5);
   
-  // form q
-  const double q0 = fac*c*(1+D);
-  const double q1 = fac*(c*(noy*nz - noz*ny) + s*(nox+nx));
-  const double q2 = fac*(c*(noz*nx - nox*nz) + s*(noy+ny));
-  const double q3 = fac*(c*(nox*ny - noy*nx) + s*(noz+nz));
+  // form q (align and roll, q = qRoll * qAlign)
+  double q0 = fac*c*(1+D);
+  double q1 = fac*(c*(noy*nz - noz*ny) + s*(nox+nx));
+  double q2 = fac*(c*(noz*nx - nox*nz) + s*(noy+ny));
+  double q3 = fac*(c*(nox*ny - noy*nx) + s*(noz+nz));
 
+  // provide output
+  NaluEnv::self().naluOutputP0() << "This is qRoll * qAlign:" << std::endl;
+  NaluEnv::self().naluOutputP0() << "q0: " << q0 << std::endl;
+  NaluEnv::self().naluOutputP0() << "q1: " << q1 << std::endl;
+  NaluEnv::self().naluOutputP0() << "q2: " << q2 << std::endl;
+  NaluEnv::self().naluOutputP0() << "q3: " << q3 << std::endl;
+
+  if ( worriesAboutCFD ) {
+    // qFinal = qCFD * q; transforms relative to a desired CFD mesh orientation
+    double qCFD0, qCFD1, qCFD2, qCFD3;
+    compute_alignment_quaternion(unitVecApp, unitVecEin, qCFD0, qCFD1, qCFD2, qCFD3);
+    
+    // construct qDinal
+    const double qFinal0 =
+      qCFD0*q0
+      - qCFD1*q1
+      - qCFD2*q2
+      - qCFD3*q3;
+    
+    const double qFinal1 =
+      qCFD0*q1
+      + qCFD1*q0
+      + qCFD2*q3
+      - qCFD3*q2;
+    
+    const double qFinal2 =
+      qCFD0*q2
+      - qCFD1*q3
+      + qCFD2*q0
+      + qCFD3*q1;
+    
+    const double qFinal3 =
+      qCFD0*q3
+      + qCFD1*q2
+      - qCFD2*q1
+      + qCFD3*q0;
+
+    // provide to q
+    q0 = qFinal0;
+    q1 = qFinal1;
+    q2 = qFinal2;
+    q3 = qFinal3;
+
+    // provide output
+    NaluEnv::self().naluOutputP0() << "This is q = qCFD * qRoll * qAlign:" << std::endl;
+    NaluEnv::self().naluOutputP0() << "q0: " << q0 << std::endl;
+    NaluEnv::self().naluOutputP0() << "q1: " << q1 << std::endl;
+    NaluEnv::self().naluOutputP0() << "q2: " << q2 << std::endl;
+    NaluEnv::self().naluOutputP0() << "q3: " << q3 << std::endl;
+  }  
+                       
   // save facs for each coordinate scaling
   const double fac_xx = q0*q0 + q1*q1 - q2*q2 - q3*q3;
   const double fac_xy = 2.0*(q1*q2 - q0*q3);
@@ -2916,6 +2973,107 @@ Realm::set_initial_displacement(
       }
     }
   }
+}
+
+//--------------------------------------------------------------------------
+//-------- compute_alignment_quaternion ------------------------------------
+//--------------------------------------------------------------------------
+void Realm::compute_alignment_quaternion(
+  const std::vector<double>& nApp,
+  const std::vector<double>& nE,
+  double &q0,
+  double &q1,
+  double &q2,
+  double &q3)
+{
+  // compute quaternion rotating nApp -> nE
+  // normalize nApp
+  double denom = std::sqrt(nApp[0]*nApp[0] +
+			   nApp[1]*nApp[1] +
+			   nApp[2]*nApp[2]);
+  
+  const double ax = nApp[0]/denom;
+  const double ay = nApp[1]/denom;
+  const double az = nApp[2]/denom;
+  
+  // normalize nE
+  denom = std::sqrt(nE[0]*nE[0] +
+		    nE[1]*nE[1] +
+		    nE[2]*nE[2]);
+  
+  const double bx = nE[0]/denom;
+  const double by = nE[1]/denom;
+  const double bz = nE[2]/denom;
+  
+  // dot product
+  double D = ax*bx + ay*by + az*bz;
+  
+  // clamp numerical errors
+  D = std::max(-1.0, std::min(1.0, D));
+  
+  const double small = 1.0e-14;
+  
+  // identity rotation
+  if (D > 1.0 - small) {
+    q0 = 1.0;
+    q1 = 0.0;
+    q2 = 0.0;
+    q3 = 0.0;
+    return;
+  }
+  
+  // 180 degree rotation
+  if (D < -1.0 + small)
+    {
+      // Pick a perpendicular axis
+      double rx = 1.0;
+      double ry = 0.0;
+      double rz = 0.0;
+      
+      if (std::abs(ax) > 0.9)
+        {
+	  rx = 0.0;
+	  ry = 1.0;
+	  rz = 0.0;
+        }
+      
+      // axis = nApp x reference
+      double cx = ay*rz - az*ry;
+      double cy = az*rx - ax*rz;
+      double cz = ax*ry - ay*rx;
+      
+      double mag = std::sqrt(
+			     cx*cx + cy*cy + cz*cz);
+      
+      cx /= mag;
+      cy /= mag;
+      cz /= mag;
+      
+      q0 = 0.0;
+      q1 = cx;
+      q2 = cy;
+      q3 = cz;
+      
+      return;
+    }
+  
+  
+  // General shortest rotation
+  // axis = nApp x nE
+  const double cx = ay*bz - az*by;
+  const double cy = az*bx - ax*bz;
+  const double cz = ax*by - ay*bx;
+  
+  
+  const double s = std::sqrt(2.0*(1.0 + D));
+  
+  q0 = 0.5*s;
+  
+  const double fac = 1.0/s;
+  
+  q1 = cx*fac;
+  q2 = cy*fac;
+  q3 = cz*fac;
 }
 
 //--------------------------------------------------------------------------
