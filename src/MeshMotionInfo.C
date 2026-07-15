@@ -57,7 +57,10 @@ MeshMotionInfo::MeshMotionInfo(
   std::vector<double> unitVec,
   const bool computeCentroid,
   double theAngle,
-  std::vector<double> unitVecRef)
+  std::vector<double> unitVecRef,
+  std::vector<double> unitVecApp,
+  std::vector<double> unitVecEin,
+  bool worriesAboutCFD)
   : meshMotionBlock_(meshMotionBlock), 
     omega_(omega), 
     centroid_(centroid),
@@ -66,6 +69,9 @@ MeshMotionInfo::MeshMotionInfo(
     computeCentroidCompleted_(false),
     theAngle_(theAngle),
     unitVecRef_(unitVecRef),
+    unitVecApp_(unitVecApp),
+    unitVecEin_(unitVecEin),
+    worriesAboutCFD_(worriesAboutCFD),
     sixDof_(false),
     bodyDispCC_(std::vector<double>(3,0.0)),
     bodyVel_(std::vector<double>(3,0.0)),
@@ -75,7 +81,7 @@ MeshMotionInfo::MeshMotionInfo(
     bodyDen_(0.0)
 {
   // nothing
-}
+ }
 
 // 6-DOF constructor
 MeshMotionInfo::MeshMotionInfo(

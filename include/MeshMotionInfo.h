@@ -37,7 +37,10 @@ class MeshMotionInfo
    std::vector<double> unitVec,
    const bool computeCentroid,
    double theAngle,
-   std::vector<double> unitVecRef);
+   std::vector<double> unitVecRef,
+   std::vector<double> unitVecApp,
+   std::vector<double> unitVecEin,
+   bool worriesAboutCFD);
 
   // 6-DOF constructor
   MeshMotionInfo(
@@ -68,7 +71,10 @@ class MeshMotionInfo
   // fixed rotation
   double theAngle_ = 0.0;
   std::vector<double> unitVecRef_{0.0,0.0,1.0};
-
+  std::vector<double> unitVecApp_{0.0,0.0,1.0};
+  std::vector<double> unitVecEin_{0.0,0.0,1.0};
+  bool worriesAboutCFD_ = false;
+  
   // tether space
   std::vector<std::array<double,9>> tetherGeom_;  
 
