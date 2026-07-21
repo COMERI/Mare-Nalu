@@ -105,7 +105,7 @@ Table2dAuxFunction::Table2dAuxFunction(
 
   // read the data from the file
   double x, y, h;
-  while ( !inFile.eof() ) {
+  while ( inFile >> x >> y >> h ) {
     inFile >> x >> y >> h;
     std::vector<double> tmpData;
     tmpData.push_back(x);
