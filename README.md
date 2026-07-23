@@ -8,7 +8,7 @@ When disseminating technical work that includes Mare-Nalu simulations, please re
 
 	Domino, S. "Sierra Low Mach Module: Nalu Theory Manual 1.0", SAND2015-3107W, Sandia National Laboratories Unclassified Unlimited Release (UUR), 2015. https://github.com/NaluCFD/NaluDoc
 	
-This document can be found under the [Mare-Nalu Documentation](http://mare-nalu.readthedocs.io/en/latest/source/theory/index.html).
+This document can be found under the [Mare-Nalu Documentation](http://nalu.readthedocs.io/en/latest/source/theory/index.html).
 
 ### Mare-Nalu Documentation
 
@@ -22,7 +22,7 @@ Detailed build instructions for Mare-Nalu [WIP] and the accompanied required TPL
 
 [![CDash Logo](https://github.com/COMERI/Mare-Nalu/blob/main/logo/cDashLogo.gif)](http://my.cdash.org/index.php?project=Nalu)
 
-Nightly testing results can be seen by clicking the CDash logo above. More details on testing can be found [here](http://mare-nalu.readthedocs.io/en/latest/source/developer/testing.html).
+Nightly testing results can be seen by clicking the CDash logo above. More details on testing can be found [here](http://nalu.readthedocs.io/en/latest/source/developer/testing.html).
 
 ### Help and Questions
 Projects that are using Mare-Nalu should use the formal github issue tracking for any questions or help. Issues are addressed by the Mare-Nalu user/developer community subject to availability.
