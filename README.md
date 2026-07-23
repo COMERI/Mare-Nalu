@@ -12,11 +12,11 @@ This document can be found under the [Mare-Nalu Documentation](http://mare-nalu.
 
 ### Mare-Nalu Documentation
 
-The Mare-Nalu documentation [WIP] website is located [here](http://mare-nalu.readthedocs.io/en/latest/).
+The Mare-Nalu documentation website is located under [Nalu's](https://nalu.readthedocs.io/en/latest/).
 
 ### Building Mare-Nalu
 
-Detailed build instructions for Mare-Nalu [WIP] and the accompanied required TPLs, e.g., Trilinos, YAML, etc.,can be found in the [Mare-Nalu Documentation](http://mare-nalu.readthedocs.io/en/latest/).
+Detailed build instructions for Mare-Nalu [WIP] and the accompanied required TPLs, e.g., Trilinos, YAML, etc.,can be found in the [Nalu Documentation](https://nalu.readthedocs.io/en/latest/).
 
 ### Nightly Testing Status
 
