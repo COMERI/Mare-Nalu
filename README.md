@@ -8,7 +8,7 @@ When disseminating technical work that includes Mare-Nalu simulations, please re
 
 	Domino, S. "Sierra Low Mach Module: Nalu Theory Manual 1.0", SAND2015-3107W, Sandia National Laboratories Unclassified Unlimited Release (UUR), 2015. https://github.com/NaluCFD/NaluDoc
 	
-This document can be found under the [Mare-Nalu Documentation](http://nalu.readthedocs.io/en/latest/source/theory/index.html).
+This document can be found under the [Mare-Nalu Documentation, now mirrored to Nalu's](http://nalu.readthedocs.io/en/latest/source/theory/index.html).
 
 ### Mare-Nalu Documentation
 
