@@ -32,7 +32,10 @@ Table2dAuxFunction::Table2dAuxFunction(
   sizeOfX_(0),
   sizeOfY_(0),
   timeBlending_(0.0),
-  baseFileName_("na.dat")
+  baseFileName_("na.dat"),
+  tanhT_(100.0),
+  tanhW_(20.0),
+  radCut_(150.0)
 {
   // first extract the data
   if ( params.size() != 6 ) {
@@ -86,7 +89,7 @@ Table2dAuxFunction::Table2dAuxFunction(
       0     2   5 20 10 13 
      +1     3   6  8 11 14
      ---------------------
-         -100 -50  0 50 100    <-  x-axis (n-columns)
+     -100 -50  0 50 100    <-  x-axis (n-columns)
   */
 
   // open file and load data
@@ -105,30 +108,28 @@ Table2dAuxFunction::Table2dAuxFunction(
 
   // read the data from the file
   double x, y, h;
-  while ( !inFile.eof() ) {
-    inFile >> x >> y >> h;
+  while ( inFile >> x >> y >> h ) {
     std::vector<double> tmpData;
+    NaluEnv::self().naluOutputP0()  << x << " " << y << " " << h << '\n';
     tmpData.push_back(x);
     tmpData.push_back(y);
     tmpData.push_back(h);
     data.push_back(tmpData);
   }
   inFile.close();
-
+  
   // fill in x-coordinates
   for ( size_t k = 0; k < data.size(); k += sizeOfY_ ) {
-    std::vector<double> tmpData = data[k];
-    const double xT = tmpData[0];
-    tableX_.push_back(xT);
+    tableX_.push_back(data[k][0]);
   }
-
+  
   // fill in y coordinates
-  for ( size_t k = 0; k < sizeOfY_; ++k ) {
-    std::vector<double> tmpData = data[k];
-    const double yT = tmpData[1];
-    tableY_.push_back(yT);
+  for (size_t k = 0; k < sizeOfY_; ++k ) {
+    tableY_.push_back(data[k][1]);
   }
 
+  NaluEnv::self().naluOutputP0()  << data.size() << " " << tableX_.size() << " " <<  tableY_.size() << '\n';
+   
   // size A_
   A_.resize(sizeOfY_);
   for ( size_t i = 0; i < sizeOfY_; ++i )
@@ -167,34 +168,44 @@ Table2dAuxFunction::do_evaluate(
     double xp = coords[interpX_];
     double yp = coords[interpY_];
 
-    int x1p = 0;
-    int y1p = 0;
-    int x2p = 0;
-    int y2p = 0;
-    
-    find_entry(xp, x1p, x2p, tableX_);
-    find_entry(yp, y1p, y2p, tableY_);
-    
-    const double x1 = tableX_[x1p];
-    const double x2 = tableX_[x2p];
-    const double y1 = tableY_[y1p];
-    const double y2 = tableY_[y2p];
-    
-    const double Q11 = A_[y2p][x1p];
-    const double Q12 = A_[y1p][x1p];
-    const double Q21 = A_[y2p][x2p];
-    const double Q22 = A_[y1p][x2p];
-    
-    const double R1 = Q11*((x2-xp)/(x2-x1)) + Q21*((xp-x1)/(x2-x1));
-    const double R2 = Q12*((x2-xp)/(x2-x1)) + Q22*((xp-x1)/(x2-x1));
-    const double interpValue = R1*((yp-y1)/(y2-y1)) + R2*((y2-yp)/(y2-y1));
+    // make sure that we decay down to zero
+    const double rad = std::sqrt(((xp - -40.0)*(xp - -40.0) + yp*yp)); 
+    double interpValue = 0.0;
+    double radFac = 1.0 - 0.50*(1.0+std::tanh((rad-tanhT_)/tanhW_));
+
+    // only process if the point is inside the cutoff zone
+    if ( rad < radCut_ ) { 
+      int x1p = 0;
+      int y1p = 0;
+      int x2p = 0;
+      int y2p = 0;
       
+      find_entry(xp, x1p, x2p, tableX_);
+      find_entry(yp, y1p, y2p, tableY_);
+      
+      const double x1 = tableX_[x1p];
+      const double x2 = tableX_[x2p];
+      const double y1 = tableY_[y1p];
+      const double y2 = tableY_[y2p];
+      //NaluEnv::self().naluOutput() << x1p << " " << x2p << " " << y1p << " " << y2p << std::endl;
+      
+      const double Q11 = A_[y2p][x1p];
+      const double Q12 = A_[y1p][x1p];
+      const double Q21 = A_[y2p][x2p];
+      const double Q22 = A_[y1p][x2p];
+    
+      const double R1 = Q11*((x2-xp)/(x2-x1)) + Q21*((xp-x1)/(x2-x1));
+      const double R2 = Q12*((x2-xp)/(x2-x1)) + Q22*((xp-x1)/(x2-x1));
+      interpValue = R1*((yp-y1)/(y2-y1)) + R2*((y2-yp)/(y2-y1));
+      //NaluEnv::self().naluOutput() << "interpValue: " << interpValue << " at x/y: " << xp << "/" << yp << std::endl;
+    }
+    
     // first assign to zero
     for ( unsigned i = 0; i < fieldSize; ++i )
       fieldPtr[i] = 0.0;
     
     // assign
-    fieldPtr[fieldComp_] = interpValue*timeFac;
+    fieldPtr[fieldComp_] = interpValue*timeFac*radFac;
     
     fieldPtr += fieldSize;
     coords += spatialDimension;

@@ -53,6 +53,10 @@ private:
   double timeBlending_;
   std::string baseFileName_;
 
+  double tanhT_;
+  double tanhW_;
+  double radCut_;
+  
   // internal data structures
   std::vector<double> tableX_;
   std::vector<double> tableY_;

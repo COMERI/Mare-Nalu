@@ -85,19 +85,24 @@ SurfaceForceAndMomentAlgorithm::SurfaceForceAndMomentAlgorithm(
   exposedAreaVec_ = meta_data.get_field<double>(meta_data.side_rank(), "exposed_area_vector");
   // error check on params
   const size_t nDim = meta_data.spatial_dimension();
-  if ( parameters_.size() > nDim )
-    throw std::runtime_error("SurfaceForce: parameter length wrong; expect nDim");
+  if ( parameters_.size() > nDim+1 )
+    throw std::runtime_error("SurfaceForce: parameter length wrong; expect nDim+1");
 
   // deal with file name and banner
   if ( NaluEnv::self().parallel_rank() == 0 ) {
     std::ofstream myfile;
     myfile.open(outputFileName_.c_str());
     myfile << std::setw(w_) 
-           << "Time" << std::setw(w_) 
-           << "Fpx"  << std::setw(w_) << "Fpy" << std::setw(w_)  << "Fpz" << std::setw(w_) 
-           << "Fvx"  << std::setw(w_) << "Fvy" << std::setw(w_)  << "Fvz" << std::setw(w_) 
-           << "Mtx"  << std::setw(w_) << "Mty" << std::setw(w_)  << "Mtz" << std::setw(w_) 
-           << "Y+min" << std::setw(w_) << "Y+max"<< std::endl;
+           << "Time"   << std::setw(w_) 
+           << "Fpx"    << std::setw(w_) << "Fpy" << std::setw(w_)   << "Fpz" << std::setw(w_) 
+           << "Fvx"    << std::setw(w_) << "Fvy"   << std::setw(w_) << "Fvz" << std::setw(w_) 
+           << "Mtx"    << std::setw(w_) << "Mty"   << std::setw(w_) << "Mtz" << std::setw(w_) 
+           << "Y+min"  << std::setw(w_) << "Y+max" << std::setw(w_)
+	   << "FpxR"   << std::setw(w_) << "FpyR"  << std::setw(w_) << "FpzR" << std::setw(w_) 
+           << "FvxR"   << std::setw(w_) << "FvyR"  << std::setw(w_) << "FvzR" << std::setw(w_) 
+	   << "TwxAR"  << std::setw(w_) << "TwyAR" << std::setw(w_) << "TwzAR" << std::setw(w_) 
+	   << "aR"     << std::endl;
+      	  
     myfile.close();
   }
  }
@@ -143,7 +148,10 @@ SurfaceForceAndMomentAlgorithm::execute()
 
   // local force and moment; i.e., to be assembled
   double l_force_moment[9] = {};
-
+  double l_ring_force_moment[6] = {};
+  double l_ring_tau_wall_vec_area[3] = {};
+  double l_ring_area = 0.0;
+  
   // work force, moment and radius; i.e., to be pushed to cross_product()
   double ws_p_force[3] = {};
   double ws_v_force[3] = {};
@@ -157,9 +165,23 @@ SurfaceForceAndMomentAlgorithm::execute()
 
   // centroid
   double centroid[3] = {};
-  for ( size_t k = 0; k < parameters_.size(); ++k)
+  for ( size_t k = 0; k < parameters_.size()-1; ++k)
     centroid[k] = parameters_[k];
 
+  // radius for nest
+  double nestRadius = parameters_[parameters_.size()-1];
+
+  const bool doOutput = false;
+  if ( doOutput ) {
+    NaluEnv::self().naluOutputP0() << "The Nest Rad is: " << nestRadius << std::endl;
+    NaluEnv::self().naluOutputP0() << "... with centroid: "
+				   << centroid[0] << " "
+				   << centroid[1] << " "
+				   << centroid[2] <<std::endl;
+  }
+  
+  double ws_tau_wall_vec[3] = {};
+  
   // define some common selectors
   stk::mesh::Selector s_locally_owned_union = meta_data.locally_owned_part()
     &stk::mesh::selectUnion(partVec_);
@@ -286,6 +308,15 @@ SurfaceForceAndMomentAlgorithm::execute()
           ws_normal[i] = ai/aMag;
         }
 
+	// compute formal radius to determine if we are in the nest
+	double rad = 0.0;
+	for ( int i = 0; i < nDim; ++i ) {
+          const double dxi = coord[i] - centroid[i];
+	  rad += dxi*dxi;
+	}
+	rad = std::sqrt(rad);
+	const double ringFac = rad < nestRadius ? 1.0 : 0.0;
+
         // load radius; assemble force -sigma_ij*njdS and compute tau_ij njDs
         for ( int i = 0; i < nDim; ++i ) {
           const double ai = areaVec[offSetAveraVec+i];
@@ -318,6 +349,7 @@ SurfaceForceAndMomentAlgorithm::execute()
           }
 	  tauWallVec[i] += tauiTangential*areaFac;
           tauTangential += tauiTangential*tauiTangential;
+	  ws_tau_wall_vec[i] = tauiTangential;
         }
 
         // assemble nodal quantities; scaled by area for L2 lumped nodal projection
@@ -330,8 +362,14 @@ SurfaceForceAndMomentAlgorithm::execute()
           l_force_moment[j] += ws_p_force[j];
           l_force_moment[j+3] += ws_v_force[j];
           l_force_moment[j+6] += ws_moment[j];
+	  l_ring_force_moment[j] += ws_p_force[j]*ringFac;
+          l_ring_force_moment[j+3] += ws_v_force[j]*ringFac;
+          l_ring_tau_wall_vec_area[j] += ws_tau_wall_vec[j]*aMag*ringFac;
         }
 
+	// assemble ring area
+	l_ring_area += aMag*ringFac;
+	
         //==================
         // deal with yplus
         //==================
@@ -374,11 +412,21 @@ SurfaceForceAndMomentAlgorithm::execute()
   
   // Parallel assembly of L2
   stk::all_reduce_sum(comm, &l_force_moment[0], &g_force_moment[0], 9);
-  
+
   // min/max
   double g_yplusMin = 0.0, g_yplusMax = 0.0;
   stk::all_reduce_min(comm, &yplusMin, &g_yplusMin, 1);
   stk::all_reduce_max(comm, &yplusMax, &g_yplusMax, 1);
+
+  // now ring
+  double g_ring_force_moment[6] = {};
+  stk::all_reduce_sum(comm, &l_ring_force_moment[0], &g_ring_force_moment[0], 6);
+
+  double g_ring_tau_wall_vec_area[6] = {};
+  stk::all_reduce_sum(comm, &l_ring_tau_wall_vec_area[0], &g_ring_tau_wall_vec_area[0], 3);
+
+  double g_ring_area = 0.0;
+  stk::all_reduce_sum(comm, &l_ring_area, &g_ring_area, 1);
   
   // deal with file name and banner
   if ( NaluEnv::self().parallel_rank() == 0 ) {
@@ -390,7 +438,11 @@ SurfaceForceAndMomentAlgorithm::execute()
            << g_force_moment[0] << std::setw(w_) << g_force_moment[1] << std::setw(w_) << g_force_moment[2] << std::setw(w_)
            << g_force_moment[3] << std::setw(w_) << g_force_moment[4] << std::setw(w_) << g_force_moment[5] <<  std::setw(w_)
            << g_force_moment[6] << std::setw(w_) << g_force_moment[7] << std::setw(w_) << g_force_moment[8] <<  std::setw(w_)
-           << g_yplusMin << std::setw(w_) << g_yplusMax << std::endl;
+      	   << g_yplusMin << std::setw(w_) << g_yplusMax << std::setw(w_)
+	   << g_ring_force_moment[0] << std::setw(w_) << g_ring_force_moment[1] << std::setw(w_) << g_ring_force_moment[2] << std::setw(w_)
+	   << g_ring_force_moment[3] << std::setw(w_) << g_ring_force_moment[4] << std::setw(w_) << g_ring_force_moment[5] << std::setw(w_)
+	   << g_ring_tau_wall_vec_area[0] << std::setw(w_) << g_ring_tau_wall_vec_area[1] << std::setw(w_) << g_ring_tau_wall_vec_area[2] << std::setw(w_)
+	   << g_ring_area << std::setw(w_) << std::endl;
     myfile.close();
   }
   
