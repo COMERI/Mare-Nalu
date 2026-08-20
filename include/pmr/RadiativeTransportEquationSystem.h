@@ -130,6 +130,7 @@ public:
   ScalarFieldType *irradiation_;
   ScalarFieldType *bcTemperature_;
   ScalarFieldType *assembledBoundaryArea_;
+  ScalarFieldType *molaSideFactor_;
   AlgorithmDriver *bcIntensityAlgDriver_;
   
   bool isInit_;

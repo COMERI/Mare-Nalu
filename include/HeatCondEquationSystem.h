@@ -71,7 +71,7 @@ public:
 
   void solve_and_update();
   void compute_projected_nodal_gradient();
-
+  void compute_integrated_qw();
   void initialize();
   void reinitialize_linear_system();
  

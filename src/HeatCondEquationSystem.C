@@ -599,6 +599,9 @@ HeatCondEquationSystem::register_wall_bc(
       stk::mesh::put_field_on_mesh(*normalHeatFlux, *part, nullptr);
       ScalarFieldType *robinCouplingParameter = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "robin_coupling_parameter"));
       stk::mesh::put_field_on_mesh(*robinCouplingParameter, *part, nullptr);
+      // kach for mola
+      ScalarFieldType *molaSideFac = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "mola_side_factor"));
+      stk::mesh::put_field_on_mesh(*molaSideFac, *part, nullptr);
       
       // provide restart fields
       realm_.augment_restart_variable_list(referenceTemperature->name());
@@ -803,6 +806,9 @@ HeatCondEquationSystem::register_wall_bc(
     ScalarFieldType *tRefField = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "reference_temperature"));
     stk::mesh::put_field_on_mesh(*tRefField, *part, nullptr);
 
+    ScalarFieldType *molaSideFac = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "mola_side_factor"));
+    stk::mesh::put_field_on_mesh(*molaSideFac, *part, nullptr);
+      
     ScalarFieldType *alphaField = NULL;
     if (isConvectionCHT)
     {
@@ -1087,6 +1093,8 @@ HeatCondEquationSystem::solve_and_update()
     isInit_ = false;
   }
 
+  compute_integrated_qw();
+  
   for ( int k = 0; k < maxIterations_; ++k ) {
 
     NaluEnv::self().naluOutputP0() << " " << k+1 << "/" << maxIterations_
@@ -1130,6 +1138,137 @@ HeatCondEquationSystem::compute_projected_nodal_gradient()
   else {
     projectedNodalGradEqs_->solve_and_update_external();
   }
+}
+
+//--------------------------------------------------------------------------
+//-------- compute_integrated_qw -------------------------------------------
+//--------------------------------------------------------------------------
+void
+HeatCondEquationSystem::compute_integrated_qw()
+{
+  
+  stk::mesh::MetaData & meta_data = realm_.meta_data();
+  
+  const int nDim = meta_data.spatial_dimension();
+
+  // get the fields
+  GenericFieldType *exposedAreaVec = meta_data.get_field<double>(meta_data.side_rank(), "exposed_area_vector");
+  ScalarFieldType *temperature = meta_data.get_field<double>(stk::topology::NODE_RANK, "temperature");
+  ScalarFieldType *referenceTemperature = meta_data.get_field<double>(stk::topology::NODE_RANK, "reference_temperature");
+  ScalarFieldType *heatTransferCoeff = meta_data.get_field<double>(stk::topology::NODE_RANK, "heat_transfer_coefficient");
+  ScalarFieldType *molaSideFactor = meta_data.get_field<double>(stk::topology::NODE_RANK, "mola_side_factor");
+
+  // setup for buckets; union parts and ask for locally owned
+  stk::mesh::Selector s_locally_owned_union = meta_data.locally_owned_part()
+    & stk::mesh::selectField(*referenceTemperature);
+  stk::mesh::BucketVector const& face_buckets =
+    realm_.get_buckets( meta_data.side_rank(), s_locally_owned_union );
+
+  // assembled heat flux (area, positive, negative, total)
+  double l_qWall[4] = {};
+ 
+  for ( stk::mesh::BucketVector::const_iterator ib = face_buckets.begin();
+        ib != face_buckets.end() ; ++ib ) {
+    stk::mesh::Bucket & b = **ib ;
+
+    // extract master element specifics
+    MasterElement *meFC = sierra::nalu::MasterElementRepo::get_surface_master_element(b.topology());
+    const int numScsIp = meFC->numIntPoints_;
+    const int *ipNodeMap = meFC->ipNodeMap();
+
+    const stk::mesh::Bucket::size_type length   = b.size();
+    for ( stk::mesh::Bucket::size_type k = 0 ; k < length ; ++k ) {
+
+      // face data; ip
+      double * areaVec = stk::mesh::field_data(*exposedAreaVec, b, k);
+
+      // face node relations for nodal gather
+      stk::mesh::Entity const * face_node_rels = b.begin_nodes(k);
+      
+      // start the assembly
+      for ( int ip = 0; ip < numScsIp; ++ip ) {
+
+        double magA = 0.0;
+        for ( int j=0; j < nDim; ++j ) {
+          magA += areaVec[ip*nDim+j]*areaVec[ip*nDim+j];
+        }
+        magA = std::sqrt(magA);
+	
+        const int nn = ipNodeMap[ip];
+        
+	// get the node and form connected_node
+        stk::mesh::Entity node = face_node_rels[nn];
+	
+	// face data; nodal
+	const double htc = *stk::mesh::field_data(*heatTransferCoeff, node);
+	const double refT = *stk::mesh::field_data(*referenceTemperature, node);
+	const double surfT = *stk::mesh::field_data(*temperature, node);
+	const double *coords = stk::mesh::field_data(*coordinates_, node);
+        
+        // form convection and rhs contribution
+        const double qWall = htc*(refT - surfT)*magA;
+
+        // extract msf
+        const double molaSF = *stk::mesh::field_data(*molaSideFactor, node);
+        const double om_molaSF = 1.0 - molaSF;
+	
+	// assemble; positive, negative and sum; may elect to limit to the front portion of the fish
+        //if ( coords[1] < 0.10 ) {
+        l_qWall[0] += magA;
+        l_qWall[1] += molaSF*qWall;
+        l_qWall[2] += om_molaSF*qWall;
+        l_qWall[3] += qWall;
+        //}
+      }
+    } 
+  }
+  
+  // now global assemble
+  double g_qWall[4] = {};
+  stk::ParallelMachine comm = NaluEnv::self().parallel_comm();
+  stk::all_reduce_sum(comm, l_qWall, g_qWall, 4);
+  
+  NaluEnv::self().naluOutputP0() << "Integrated Heat Flux Output  " << std::endl;
+  NaluEnv::self().naluOutputP0() << "   qWall (+x/-x/total/area): " << std::setprecision(16) 
+				 << g_qWall[1] << "/"
+				 << g_qWall[2] << "/"
+				 << g_qWall[3] << "/"
+				 << g_qWall[0] << std::endl;
+  
+  const double qWp = std::abs(g_qWall[1]);
+  const double qWn = std::abs(g_qWall[2]);
+  const double Sq = 1.0 - std::abs(qWp - qWn)/(qWp + qWn);
+  NaluEnv::self().naluOutputP0() << "   Symmetry Index:           " << std::setprecision(8)
+				 << Sq << " "
+				 << 2.0*std::min(qWp,qWn)/(qWp + qWn) << std::endl;
+
+  // now compute volume
+  ScalarFieldType *dualNodalVolume
+    = meta_data.get_field<double>(stk::topology::NODE_RANK, "dual_nodal_volume");
+
+  stk::mesh::Selector s_locally_owned_union_vol = meta_data.locally_owned_part()
+    & stk::mesh::selectField(*dualNodalVolume);
+  stk::mesh::BucketVector const& node_buckets =
+    realm_.get_buckets( stk::topology::NODE_RANK, s_locally_owned_union_vol );
+
+  double l_vol = 0.0;
+  for ( stk::mesh::BucketVector::const_iterator ib = node_buckets.begin();
+        ib != node_buckets.end() ; ++ib ) {
+    stk::mesh::Bucket & b = **ib ;
+
+    const stk::mesh::Bucket::size_type length   = b.size();
+    const double * dnv = stk::mesh::field_data(*dualNodalVolume, b);
+   
+    for ( stk::mesh::Bucket::size_type k = 0 ; k < length ; ++k ) {
+      l_vol += dnv[k];
+    }
+  }
+
+  // parallel assemble
+  double g_vol = 0.0;
+  stk::all_reduce_sum(comm, &l_vol, &g_vol, 1);
+  NaluEnv::self().naluOutputP0() << "Total Mola Mola Volume: " << g_vol << std::endl;
+  
 }
 
 //--------------------------------------------------------------------------

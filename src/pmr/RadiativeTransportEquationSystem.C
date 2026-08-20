@@ -113,6 +113,7 @@ RadiativeTransportEquationSystem::RadiativeTransportEquationSystem(
     irradiation_(NULL),
     bcTemperature_(NULL),
     assembledBoundaryArea_(NULL),
+    molaSideFactor_(NULL),
     isInit_(true),
     ordinateDirections_(0),
     currentWeight_(0),
@@ -619,6 +620,9 @@ RadiativeTransportEquationSystem::register_wall_bc(
     assembledBoundaryArea_ = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "assembled_boundary_area"));
     stk::mesh::put_field_on_mesh(*assembledBoundaryArea_, *part, nullptr);
 
+    molaSideFactor_ = &(meta_data.declare_field<double>(stk::topology::NODE_RANK, "mola_side_factor"));
+    stk::mesh::put_field_on_mesh(*molaSideFactor_, *part, nullptr);
+
     // interior temperature is not over written by boundary value; push to bcTemperature_
     Temperature theTemp = userData.temperature_;
     std::vector<double> userSpec(1);
@@ -628,7 +632,11 @@ RadiativeTransportEquationSystem::register_wall_bc(
       = new AuxFunctionAlgorithm(realm_, part,
                                  bcTemperature_, theAuxFunc,
                                  stk::topology::NODE_RANK);
-    
+
+    NaluEnv::self().naluOutputP0() << "Temperature specified on part: "
+                                   << part->name() << " "
+                                   << theTemp.temperature_ << std::endl; 
+
     // interface bcs expect bc temperature from elsewhere; just push this wall bc as part of initial work
     if ( isInterface )
       realm_.initCondAlg_.push_back(auxAlg);
@@ -900,7 +908,7 @@ RadiativeTransportEquationSystem::solve_and_update()
     
     // normalize_irradiation
     normalize_irradiation();
-        
+
     // bc intensity is only used by PMR; output will be lagged
 
     // compute divRadFLux and norm
@@ -1403,6 +1411,8 @@ RadiativeTransportEquationSystem::normalize_irradiation()
   stk::mesh::BulkData & bulk_data = realm_.bulk_data();
   stk::mesh::MetaData & meta_data = realm_.meta_data();
 
+  const int nDim = meta_data.spatial_dimension();
+
   // parallel and periodic assembly
   std::vector<const stk::mesh::FieldBase*> sum_fields(1, irradiation_);
   stk::mesh::parallel_sum(bulk_data, sum_fields);
@@ -1425,10 +1435,22 @@ RadiativeTransportEquationSystem::normalize_irradiation()
     const size_t length   = b.size();
     const double * assembledBCA = stk::mesh::field_data(*assembledBoundaryArea_, b);
     double * irradiation = stk::mesh::field_data(*irradiation_, b);
+    double * msf = stk::mesh::field_data(*molaSideFactor_, b);
+    const double * coords = stk::mesh::field_data(*coordinates_, b);
     for ( size_t k = 0 ; k < length ; ++k ) {
       irradiation[k] /= assembledBCA[k];
+
+      // deal with mola side factor
+      if ( irradiation[k] > 4.7e6 || coords[k*nDim] < -0.09 ) {
+        msf[k] = 1.0;
+      }
+      else {
+        msf[k] = 0.0;
+      }
     }
   }
+
+  
 }
 
 
