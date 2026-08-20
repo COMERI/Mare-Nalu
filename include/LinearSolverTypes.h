@@ -10,6 +10,10 @@
 #define LinearSolverTypes_h
 
 #include <KokkosInterface.h>
+#include <BelosMultiVecTraits.hpp>
+#include <BelosLinearProblem.hpp>
+#include <BelosSolverManager.hpp>
+#include <BelosTpetraAdapter.hpp>
 #include <Tpetra_CrsGraph.hpp>
 #include <Tpetra_CrsMatrix.hpp>
 #include <Tpetra_Vector.hpp>
@@ -25,25 +29,6 @@ template <typename T>
 class MpiComm;
 
 class ParameterList;
-
-}
-
-namespace Belos {
-
-template <typename Scalar, typename MultiVector>
-class MultiVecTraits;
-
-template <typename Scalar, typename MultiVector, typename Operator>
-class OperatorTraits;
-
-template <typename Scalar, typename MultiVector, typename Operator>
-class LinearProblem;
-
-template <typename Scalar, typename MultiVector, typename Operator>
-class SolverManager;
-
-template <typename Scalar, typename MultiVector, typename Operator>
-class TpetraSolverFactory;
 
 }
 
@@ -79,11 +64,12 @@ typedef Teuchos::ArrayRCP<const Scalar >                                   Const
 typedef Tpetra::Vector<Scalar,LocalOrdinal,GlobalOrdinal,Node>             Vector;
 typedef Tpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>       Matrix;
 typedef Tpetra::Operator<Scalar, LocalOrdinal, GlobalOrdinal, Node>        Operator;
-typedef Belos::MultiVecTraits<Scalar, MultiVector>                         MultiVectorTraits;
-typedef Belos::OperatorTraits<Scalar,MultiVector, Operator>                OperatorTraits;
-typedef Belos::LinearProblem<Scalar, MultiVector, Operator>                LinearProblem;
-typedef Belos::SolverManager<Scalar, MultiVector, Operator>                SolverManager;
-typedef Belos::TpetraSolverFactory<Scalar, MultiVector, Operator>          SolverFactory;
+typedef Belos::DefaultDenseMatrix<int, Scalar>                             BelosDM;
+typedef Belos::MultiVecTraits<Scalar, MultiVector, BelosDM>                MultiVectorTraits;
+typedef Belos::OperatorTraits<Scalar, MultiVector, Operator>               OperatorTraits;
+typedef Belos::LinearProblem<Scalar, MultiVector, Operator, BelosDM>       LinearProblem;
+typedef Belos::SolverManager<Scalar, MultiVector, Operator, BelosDM>       SolverManager;
+typedef Belos::TpetraSolverFactory<Scalar, MultiVector, Operator, BelosDM> SolverFactory;
 typedef Ifpack2::Preconditioner<Scalar, LocalOrdinal, GlobalOrdinal, Node> Preconditioner;
 };
 
